@@ -59,7 +59,7 @@ aibps-v0-1/
 
 ```bash
 # Clone and enter
-git clone https://github.com/<your_username>/aibps-v0-1.git
+git clone https://github.com/mjmonnot/aibps-v0-1.git
 cd aibps-v0-1
 
 # Create environment
