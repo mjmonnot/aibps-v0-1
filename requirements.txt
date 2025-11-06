@@ -8,3 +8,4 @@ streamlit
 requests
 sec-edgar-downloader
 python-dotenv
+altair
