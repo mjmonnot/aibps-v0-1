@@ -125,14 +125,22 @@ if st.button("Export current view as PDF"):
 
 # --- Footer / version ---
 st.caption("AIBPS v0.1 • sliders in sidebar • export available below")
+
 st.markdown(
     """
     ---
     <div style="text-align: center; font-size: 0.9em;">
         <a href="https://streamlit.io/cloud" target="_blank">
-            <img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" alt="Streamlit Badge" width="100"/>
-        </a><br>
-        <em>Deployed on Streamlit Cloud</em>
+            <img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" 
+                 alt="Streamlit Badge" width="100"/>
+        </a>
+        &nbsp;&nbsp;
+        <a href="https://github.com/mjmonnot/aibps-v0-1" target="_blank">
+            <img src="https://img.shields.io/badge/GitHub-Repository-black?logo=github" 
+                 alt="GitHub Repo" height="25"/>
+        </a>
+        <br>
+        <em>Deployed on Streamlit Cloud • View source on GitHub</em>
     </div>
     """,
     unsafe_allow_html=True,
