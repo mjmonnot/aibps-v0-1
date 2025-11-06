@@ -125,7 +125,6 @@ if st.button("Export current view as PDF"):
 
 # --- Footer / version ---
 st.caption("AIBPS v0.1 • sliders in sidebar • export available below")
-
 st.markdown(
     """
     ---
