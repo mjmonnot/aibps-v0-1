@@ -69,8 +69,124 @@ df["AIBPS_custom"] = (df[pillars] * weights).sum(axis=1)
 df["AIBPS_RA"] = df["AIBPS_custom"].rolling(3, min_periods=1).mean()
 
 # ---- Composite chart ----
+# ---- Composite chart (Altair with toggles + dynamic label) ----
+import altair as alt
+from datetime import datetime
+
 st.subheader("Composite (3-quarter rolling average)")
-st.line_chart(df[["AIBPS_RA"]])
+
+# Controls row (toggle visibility + opacity)
+ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1.2, 1.2, 1.2, 2.4])
+with ctrl1:
+    show_bands = st.checkbox("Show risk bands", value=True)
+with ctrl2:
+    show_rules = st.checkbox("Show thresholds", value=True)
+with ctrl3:
+    show_points = st.checkbox("Show points", value=True)
+with ctrl4:
+    band_opacity = st.slider("Band opacity", 0.00, 0.40, 0.18, 0.02)
+
+# Prep data for plotting
+df_plot = df.reset_index().rename(columns={"index": "Date"})
+df_plot["Date"] = pd.to_datetime(df_plot["Date"])
+
+ymin, ymax = 0, 100
+start_date = df_plot["Date"].min()
+end_date = df_plot["Date"].max()
+
+# Latest value + zone badge
+latest_row = df_plot.iloc[-1]
+latest_val = float(latest_row["AIBPS_RA"])
+
+def zone_label(x: float):
+    if x < 50:   return "Watch (<50)", "#b7e3b1"
+    if x < 70:   return "Rising (50–70)", "#fde28a"
+    if x < 85:   return "Elevated (70–85)", "#f7b267"
+    return "Critical (>85)", "#f08080"
+
+z_label, z_color = zone_label(latest_val)
+
+st.markdown(
+    f"""
+    <div style="display:inline-block;padding:10px 14px;border-radius:12px;
+                background:{z_color};color:#222;font-weight:600;margin-bottom:6px;">
+        AIBPS (3Q RA): {latest_val:.1f} — {z_label}
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# Base line + tooltip
+line = (
+    alt.Chart(df_plot)
+    .mark_line(point=False, strokeWidth=2, color="#e07b39")
+    .encode(
+        x=alt.X("Date:T", axis=alt.Axis(title="Date")),
+        y=alt.Y("AIBPS_RA:Q", scale=alt.Scale(domain=[ymin, ymax]),
+                axis=alt.Axis(title="Composite Score (0–100)")),
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date"),
+            alt.Tooltip("AIBPS_RA:Q", title="AIBPS (3Q RA)", format=".1f"),
+        ],
+    )
+)
+
+layers = [line]
+
+# Optional points layer
+if show_points:
+    points = (
+        alt.Chart(df_plot)
+        .mark_circle(size=28, color="#e07b39", opacity=0.8)
+        .encode(
+            x="Date:T",
+            y="AIBPS_RA:Q",
+            tooltip=[
+                alt.Tooltip("Date:T", title="Date"),
+                alt.Tooltip("AIBPS_RA:Q", title="AIBPS (3Q RA)", format=".1f"),
+            ],
+        )
+    )
+    layers.append(points)
+
+# Optional risk bands
+if show_bands:
+    bands_df = pd.DataFrame([
+        {"label": "Watch (<50)",      "y_start": 0,  "y_end": 50, "start": start_date, "end": end_date},
+        {"label": "Rising (50–70)",   "y_start": 50, "y_end": 70, "start": start_date, "end": end_date},
+        {"label": "Elevated (70–85)", "y_start": 70, "y_end": 85, "start": start_date, "end": end_date},
+        {"label": "Critical (>85)",   "y_start": 85, "y_end": 100,"start": start_date, "end": end_date},
+    ])
+    band_colors = ["#b7e3b1", "#fde28a", "#f7b267", "#f08080"]
+    bands = (
+        alt.Chart(bands_df)
+        .mark_rect(opacity=float(band_opacity))
+        .encode(
+            x="start:T",
+            x2="end:T",
+            y="y_start:Q",
+            y2="y_end:Q",
+            color=alt.Color("label:N",
+                            scale=alt.Scale(range=band_colors),
+                            legend=alt.Legend(title="Zones")),
+        )
+    )
+    layers.insert(0, bands)  # put bands behind the line
+
+# Optional threshold rules
+if show_rules:
+    rules_df = pd.DataFrame({"y": [50, 70, 85], "label": ["Watch", "Rising", "Elevated"]})
+    rules = (
+        alt.Chart(rules_df)
+        .mark_rule(strokeDash=[4, 4], color="gray")
+        .encode(y="y:Q")
+    )
+    layers.append(rules)
+
+chart = alt.layer(*layers).resolve_scale(y="shared").interactive()
+st.altair_chart(chart, use_container_width=True)
+
+
 
 # ---- Latest metrics ----
 st.subheader("Latest pillar readings")
