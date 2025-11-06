@@ -1,0 +1,58 @@
+# Indicator configuration for AIBPS v0.1
+window_years: 10
+weights:
+  Market: 0.25
+  Capex_Supply: 0.25
+  Infra: 0.20
+  Adoption: 0.15
+  Credit: 0.15
+
+indicators:
+  - id: AI_Beta_Index
+    pillar: Market
+    source: yfinance
+    ticker: SOXX
+    transform: pct_yoy_percentile
+  - id: EV_Sales_Proxy
+    pillar: Market
+    source: yfinance
+    ticker: QQQ
+    transform: valuation_proxy_percentile
+  - id: Options_Skew_Placeholder
+    pillar: Market
+    source: manual
+    transform: percentile
+
+  - id: Hyperscaler_Capex_Revenue
+    pillar: Capex_Supply
+    source: manual_filings
+    transform: percentile
+  - id: Semicap_Book_to_Bill
+    pillar: Capex_Supply
+    source: manual_semiorg
+    transform: percentile
+
+  - id: Grid_Queue_MW
+    pillar: Infra
+    source: manual_iso
+    transform: percentile
+  - id: DC_Vacancy
+    pillar: Infra
+    source: manual_broker
+    transform: inverted_percentile
+
+  - id: Cloud_AI_Revenue_Growth
+    pillar: Adoption
+    source: manual_cloud
+    transform: percentile
+
+  - id: HY_OAS
+    pillar: Credit
+    source: fred
+    fred_series: BAMLH0A0HYM2
+    transform: inverted_percentile
+  - id: IG_OAS
+    pillar: Credit
+    source: fred
+    fred_series: BAMLCC0A0CM
+    transform: inverted_percentile

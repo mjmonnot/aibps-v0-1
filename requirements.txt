@@ -1,0 +1,10 @@
+pandas
+numpy
+matplotlib
+pyyaml
+yfinance
+fredapi
+streamlit
+requests
+sec-edgar-downloader
+python-dotenv
