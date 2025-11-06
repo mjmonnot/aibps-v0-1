@@ -35,6 +35,7 @@ You can deploy this dashboard directly using **[Streamlit Community Cloud](https
 ---
 
 ## 🏗️ Project Structure
+```
 aibps-v0-1/
 ├── app/
 │   └── streamlit_app.py          # interactive dashboard
