@@ -1,72 +1,95 @@
 # src/aibps/compute.py
+# Robust compute: build Market/Credit pillars from processed inputs, align monthly, no stubs
 import os, sys, time
 import pandas as pd
 import numpy as np
 
-PRO_DIR = os.path.join("data", "processed")
-SAMPLE = os.path.join("data", "sample", "aibps_monthly_sample.csv")
-os.makedirs(PRO_DIR, exist_ok=True)
+PRO = os.path.join("data","processed")
+OUT = os.path.join(PRO, "aibps_monthly.csv")
+os.makedirs(PRO, exist_ok=True)
 
-def safe_read(path, **kwargs):
-    if os.path.exists(path):
-        try:
-            return pd.read_csv(path, **kwargs)
-        except Exception as e:
-            print(f"⚠️ Failed to read {path}: {e}")
-    return None
+def read_proc(name):
+    path = os.path.join(PRO, name)
+    if not os.path.exists(path):
+        return None
+    try:
+        return pd.read_csv(path, index_col=0, parse_dates=True).sort_index()
+    except Exception as e:
+        print(f"⚠️ Failed to read {path}: {e}")
+        return None
+
+def to_month_end(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    # Ensure DateTimeIndex & month-end alignment
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index, errors="coerce")
+    df = df[~df.index.isna()]
+    return df.resample("M").last()
 
 def main():
-    start = time.time()
-    market = safe_read(os.path.join(PRO_DIR, "market_processed.csv"), index_col=0, parse_dates=True)
-    credit = safe_read(os.path.join(PRO_DIR, "credit_fred_processed.csv"), index_col=0, parse_dates=True)
+    t0 = time.time()
 
-    if market is None and credit is None:
-        if os.path.exists(SAMPLE):
-            print("ℹ️ Inputs missing → using sample composite.")
-            df = pd.read_csv(SAMPLE, index_col=0, parse_dates=True)
-            df.to_csv(os.path.join(PRO_DIR, "aibps_monthly.csv"))
-            print("💾 Wrote sample composite → data/processed/aibps_monthly.csv")
-            return
-        raise RuntimeError("No inputs and no sample composite found.")
+    market = read_proc("market_processed.csv")
+    credit = read_proc("credit_fred_processed.csv")
+    capex  = read_proc("capex_processed.csv")       # optional
+    infra  = read_proc("infra_processed.csv")       # optional
+    adopt  = read_proc("adoption_processed.csv")    # optional
 
-    # Merge monthly processed inputs
-    frames = []
-    if market is not None: frames.append(market)
-    if credit is not None: frames.append(credit)
-    df = pd.concat(frames, axis=1).sort_index()
+    market = to_month_end(market)
+    credit = to_month_end(credit)
+    capex  = to_month_end(capex)
+    infra  = to_month_end(infra)
+    adopt  = to_month_end(adopt)
 
-    # Map processed columns to pillars (v0.1)
-    out = pd.DataFrame(index=df.index)
+    pillars = []
 
-    mkt_cols = [c for c in df.columns if c.startswith("MKT_")]
-    if mkt_cols:
-        out["Market"] = df[mkt_cols].mean(axis=1)
+    # ---- Market pillar: average of all MKT_* columns (0–100) ----
+    if market is not None and not market.empty:
+        mcols = [c for c in market.columns if c.startswith("MKT_")]
+        if mcols:
+            mk = market[mcols].mean(axis=1, skipna=True).to_frame("Market")
+            pillars.append(mk)
 
-    cred_cols = [c for c in df.columns if c.endswith("_pct") and ("OAS" in c or "CREDIT" in c)]
-    if cred_cols:
-        out["Credit"] = df[cred_cols].mean(axis=1)
+    # ---- Credit pillar: average of *_pct columns (0–100) ----
+    if credit is not None and not credit.empty:
+        ccols = [c for c in credit.columns if c.endswith("_pct")]
+        if ccols:
+            cr = credit[ccols].mean(axis=1, skipna=True).to_frame("Credit")
+            pillars.append(cr)
 
-    # Only use pillars that actually exist; do NOT inject 55s
-    pillars = [c for c in ["Market","Credit","Capex_Supply","Infra","Adoption"] if c in out.columns]
+    # ---- Optional pillars (already 0–100) ----
+    if capex is not None and "Capex_Supply" in capex.columns:
+        pillars.append(capex[["Capex_Supply"]])
+    if infra is not None and "Infra" in infra.columns:
+        pillars.append(infra[["Infra"]])
+    if adopt is not None and "Adoption" in adopt.columns:
+        pillars.append(adopt[["Adoption"]])
+
     if not pillars:
-        raise RuntimeError("No pillar columns available after mapping.")
+        raise RuntimeError("No pillar inputs found in data/processed/. Ensure market/credit processed CSVs exist.")
 
-    # Default weights (renormalize to present pillars only)
-    default_w = {"Market":0.25,"Capex_Supply":0.25,"Infra":0.20,"Adoption":0.15,"Credit":0.15}
-    w_vec = np.array([default_w[p] for p in pillars], dtype=float)
-    w_vec = w_vec / w_vec.sum()
+    # Outer-join all pillars on month-end index (keep data even if others missing)
+    df = pd.concat(pillars, axis=1, join="outer").sort_index()
 
-    out = out[pillars].dropna(how="all")
-    out["AIBPS"] = (out[pillars] * w_vec).sum(axis=1)
-    out["AIBPS_RA"] = out["AIBPS"].rolling(3, min_periods=1).mean()
+    # Default weights; app will reweight interactively
+    desired  = ["Market","Capex_Supply","Infra","Adoption","Credit"]
+    present  = [p for p in desired if p in df.columns]
+    defaults = {"Market":0.25,"Capex_Supply":0.25,"Infra":0.20,"Adoption":0.15,"Credit":0.15}
+    w = np.array([defaults[p] for p in present], dtype=float)
+    w = w / w.sum()
 
-    out.to_csv(os.path.join(PRO_DIR, "aibps_monthly.csv"))
-    print("💾 Wrote composite → data/processed/aibps_monthly.csv")
-    print(f"⏱ Done in {time.time()-start:.1f}s")
+    # Static composite (for reference); app recomputes with user weights
+    df["AIBPS"] = (df[present] * w).sum(axis=1, skipna=True)
+    df["AIBPS_RA"] = df["AIBPS"].rolling(3, min_periods=1).mean()
+
+    df.to_csv(OUT)
+    print(f"💾 Wrote {OUT} with pillars: {present} (rows={len(df)})")
+    print(f"⏱  Done in {time.time()-t0:.2f}s")
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"❌ compute.py failed: {e}")
+        print(f"❌ compute.py: {e}")
         sys.exit(1)
