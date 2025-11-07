@@ -30,6 +30,37 @@ if not os.path.exists(PROC_PATH):
 
 df = pd.read_csv(PROC_PATH, index_col=0, parse_dates=True).sort_index()
 
+# ---------- Data Freshness badge (NEW) ----------
+import time
+
+def freshness_badge(path: str):
+    try:
+        mtime = os.path.getmtime(path)
+    except Exception:
+        st.warning("Freshness: unknown (file not found)")
+        return
+    age_hours = (time.time() - mtime) / 3600.0
+
+    if age_hours < 6:
+        label, color = f"Fresh • {age_hours:.1f}h ago", "#b7e3b1"   # green
+    elif age_hours < 24:
+        label, color = f"OK • {age_hours:.1f}h ago", "#fde28a"      # yellow
+    elif age_hours < 72:
+        label, color = f"Stale • {age_hours:.1f}h ago", "#f7b267"   # orange
+    else:
+        label, color = f"Stale • {age_hours/24:.1f}d ago", "#f08080" # red
+
+    st.markdown(
+        f"""<div style="display:inline-block;padding:8px 12px;border-radius:12px;
+                        background:{color};color:#222;font-weight:600;margin:6px 0;">
+               Data freshness: {label}
+            </div>""",
+        unsafe_allow_html=True
+    )
+
+freshness_badge(PROC_PATH)
+
+
 # ---------- Identify pillars present ----------
 DESIRED = ["Market", "Capex_Supply", "Infra", "Adoption", "Credit"]
 present_pillars = [p for p in DESIRED if p in df.columns]
