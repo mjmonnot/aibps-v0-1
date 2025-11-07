@@ -167,11 +167,11 @@ else:
 
     # Optional bands
     if show_bands:
-    bands_df = pd.DataFrame([
-        {"label": "Critical (>85)", "y_start": 85, "y_end": 100, "start": start_date, "end": end_date},
-        {"label": "Elevated (70–85)", "y_start": 70, "y_end": 85, "start": start_date, "end": end_date},
-        {"label": "Rising (50–70)", "y_start": 50, "y_end": 70, "start": start_date, "end": end_date},
-        {"label": "Watch (<50)", "y_start": 0, "y_end": 50, "start": start_date, "end": end_date},
+        bands_df = pd.DataFrame([
+            {"label": "Critical (>85)", "y_start": 85, "y_end": 100, "start": start_date, "end": end_date},
+            {"label": "Elevated (70–85)", "y_start": 70, "y_end": 85, "start": start_date, "end": end_date},
+            {"label": "Rising (50–70)", "y_start": 50, "y_end": 70, "start": start_date, "end": end_date},
+            {"label": "Watch (<50)", "y_start": 0, "y_end": 50, "start": start_date, "end": end_date},
     ])
     band_colors = ["#b7e3b1", "#fde28a", "#f7b267", "#f08080"]
 
