@@ -29,11 +29,9 @@ def download_live(start=START):
                 print(f"⚠️ yfinance returned empty for {t}; skipping.")
                 continue
             # Avoid .rename completely; construct a new DataFrame with explicit name
-            s = df["Close"]
-            s.index = pd.to_datetime(s.index)
-            s.index.name = "Date"
-            one = pd.DataFrame({t: s.values}, index=s.index)
-            frames.append(one)
+one = df["Close"].rename_axis("Date").to_frame(name=t)
+frames.append(one)
+
         if not frames:
             return None
         out = pd.concat(frames, axis=1)
