@@ -2,7 +2,7 @@ name: Update data and compute AIBPS
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours (UTC)
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ---------- Guard + preview for fetch_market.py ----------
+      # ----- Guard + preview for fetch_market.py -----
       - name: Verify fetch_market.py on runner (no rename) + preview
         run: |
           echo "===== HEAD of src/aibps/fetch_market.py ====="
@@ -59,10 +59,9 @@ jobs:
           fi
 
       - name: Fetch market proxies (yfinance)
-        run: |
-          python src/aibps/fetch_market.py
+        run: python src/aibps/fetch_market.py
 
-      # ---------- Preview for fetch_credit.py ----------
+      # ----- Preview + run credit -----
       - name: Preview fetch_credit.py (first 120 lines)
         run: |
           echo "===== HEAD of src/aibps/fetch_credit.py ====="
@@ -76,31 +75,22 @@ jobs:
       - name: Fetch credit (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-        run: |
-          python src/aibps/fetch_credit.py
+        run: python src/aibps/fetch_credit.py
 
       - name: Compute AIBPS
-        run: |
-          python src/aibps/compute.py
+        run: python src/aibps/compute.py
 
-      # ---------- Commit/push with rebase (avoid non-fast-forward) ----------
+      # ----- Rebase-aware commit & push -----
       - name: Commit processed files
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Stage changes if any CSVs updated
           git add data/raw/*.csv data/processed/*.csv || true
-
-          # If nothing staged, stop here
           if git diff --cached --quiet; then
             echo "No data changes to commit."
             exit 0
           fi
-
-          # Rebase onto latest main to avoid push rejection
           git fetch origin main
           git pull --rebase origin main || true
-
           git commit -m "Auto-update data ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))" || true
           git push origin HEAD:main
