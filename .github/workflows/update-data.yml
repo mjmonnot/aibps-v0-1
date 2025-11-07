@@ -16,7 +16,6 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      # --- Checkout repo (explicit main, full history) ---
       - name: Check out repo
         uses: actions/checkout@v4
         with:
@@ -26,11 +25,10 @@ jobs:
 
       - name: Show branch and last commit
         run: |
-          echo "Branch:" $(git rev-parse --abbrev-ref HEAD)
-          echo "Commit:" $(git rev-parse HEAD)
+          echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
+          echo "Commit: $(git rev-parse HEAD)"
           git log -1 --stat
 
-      # --- Python toolchain ---
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -42,60 +40,51 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # --- Preview scripts on runner (helps diagnose stale files) ---
-      - name: Preview fetch scripts (first 120 lines)
-        run: |
-          echo "===== src/aibps/fetch_market.py ====="
-          [ -f src/aibps/fetch_market.py ] && sed -n '1,120p' src/aibps/fetch_market.py || echo "fetch_market.py missing"
-          echo "===== src/aibps/fetch_market_safe.py ====="
-          [ -f src/aibps/fetch_market_safe.py ] && sed -n '1,120p' src/aibps/fetch_market_safe.py || echo "fetch_market_safe.py missing"
-          echo "===== src/aibps/fetch_credit.py ====="
-          [ -f src/aibps/fetch_credit.py ] && sed -n '1,120p' src/aibps/fetch_credit.py || echo "fetch_credit.py missing"
-          echo "===== src/aibps/compute.py ====="
-          [ -f src/aibps/compute.py ] && sed -n '1,120p' src/aibps/compute.py || echo "compute.py missing"
-
-      # --- Market step: guard against old .rename( ) and fall back to safe script ---
-           - name: Fetch market proxies (SAFE)
+      # ----- MARKET (SAFE) -----
+      - name: Fetch market proxies (SAFE)
         run: |
           python src/aibps/fetch_market_safe.py
 
-      - name: Sanity print processed tails (after market)
+      - name: Sanity print market tail
         run: |
           echo "---- TAIL: data/processed/market_processed.csv ----"
-          [ -f data/processed/market_processed.csv ] && tail -n 10 data/processed/market_processed.csv || echo "missing"
+          if [ -f data/processed/market_processed.csv ]; then
+            tail -n 10 data/processed/market_processed.csv
+          else
+            echo "market_processed.csv missing"
+          fi
 
-
-      # --- Credit step (FRED) ---
+      # ----- CREDIT (FRED) -----
       - name: Fetch credit (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
-          if [ -f src/aibps/fetch_credit.py ]; then
-            python src/aibps/fetch_credit.py
+          python src/aibps/fetch_credit.py
+
+      - name: Sanity print credit tail
+        run: |
+          echo "---- TAIL: data/processed/credit_fred_processed.csv ----"
+          if [ -f data/processed/credit_fred_processed.csv ]; then
+            tail -n 10 data/processed/credit_fred_processed.csv
           else
-            echo "::error ::src/aibps/fetch_credit.py not found"; exit 1
+            echo "credit_fred_processed.csv missing"
           fi
 
-      # --- Sanity print processed tails BEFORE compute (helps validate inputs) ---
-      - name: Sanity print processed tails (before compute)
-        run: |
-          echo "---- TAIL: data/processed/market_processed.csv ----"
-          [ -f data/processed/market_processed.csv ] && tail -n 8 data/processed/market_processed.csv || echo "missing"
-          echo "---- TAIL: data/processed/credit_fred_processed.csv ----"
-          [ -f data/processed/credit_fred_processed.csv ] && tail -n 8 data/processed/credit_fred_processed.csv || echo "missing"
-
-      # --- Compute composite ---
+      # ----- COMPUTE -----
       - name: Compute AIBPS
         run: |
           python src/aibps/compute.py
 
-      # --- Sanity print composite tail AFTER compute ---
-      - name: Sanity print composite tail (after compute)
+      - name: Sanity print composite tail
         run: |
           echo "---- TAIL: data/processed/aibps_monthly.csv ----"
-          [ -f data/processed/aibps_monthly.csv ] && tail -n 12 data/processed/aibps_monthly.csv || echo "missing"
+          if [ -f data/processed/aibps_monthly.csv ]; then
+            tail -n 12 data/processed/aibps_monthly.csv
+          else
+            echo "aibps_monthly.csv missing"
+          fi
 
-      # --- Commit & push data updates (rebase-aware to avoid non-fast-forward) ---
+      # ----- COMMIT & PUSH -----
       - name: Commit processed files
         run: |
           git config user.name  "github-actions[bot]"
