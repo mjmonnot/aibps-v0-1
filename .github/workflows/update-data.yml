@@ -98,6 +98,21 @@ jobs:
           else
             echo "macro_capex_processed.csv missing"
           fi
+      
+      # ----- INFRA (manual CSV) -----
+      - name: Fetch Infra (manual CSV)
+        run: |
+          python src/aibps/fetch_infra.py
+
+      - name: Sanity print infra tail
+        run: |
+          echo "---- TAIL: data/processed/infra_processed.csv ----"
+          if [ -f data/processed/infra_processed.csv ]; then
+            tail -n 10 data/processed/infra_processed.csv
+          else
+            echo "infra_processed.csv missing"
+          fi
+
 
       # ----- COMPUTE -----
       - name: Compute AIBPS
