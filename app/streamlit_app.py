@@ -82,10 +82,47 @@ def gh_meta_badge(path: str):
         html = f'<a href="{run_url}" target="_blank" style="text-decoration:none;">{html}</a>'
     st.markdown(html, unsafe_allow_html=True)
 
-# ---------- Sidebar: status panel (kept out of main page) ----------
-with st.sidebar.expander("Dataset status", expanded=False):
+# ---------- SIDEBAR: Dataset + Capex status ----------
+with st.sidebar.expander("Dataset & build status", expanded=False):
     freshness_badge(PROC_PATH)
     gh_meta_badge(META_PATH)
+
+with st.sidebar.expander("Capex breakdown (macro vs manual)", expanded=True):
+    cap_cols = [c for c in ["Capex_Supply", "Capex_Supply_Manual", "Capex_Supply_Macro"] if c in df.columns]
+    if not cap_cols:
+        st.write("No Capex series available yet.")
+    else:
+        df_cap = df[cap_cols].copy()
+
+        # keep last 5 years so the chart is readable
+        cutoff = df_cap.index.max() - pd.DateOffset(years=5)
+        df_cap = df_cap[df_cap.index >= cutoff]
+
+        df_cap = df_cap.reset_index().rename(columns={"index": "date"})
+        long_cap = df_cap.melt(
+            id_vars=["date"],
+            value_vars=cap_cols,
+            var_name="series",
+            value_name="value"
+        ).dropna()
+
+        if long_cap.empty:
+            st.write("Capex data present but empty after filtering.")
+        else:
+            cap_chart = (
+                alt.Chart(long_cap)
+                .mark_line()
+                .encode(
+                    x=alt.X("date:T", title="Date"),
+                    y=alt.Y("value:Q", title="Capex percentile (0–100)"),
+                    color=alt.Color("series:N", title="Series"),
+                    tooltip=["date:T", "series:N", "value:Q"]
+                )
+                .properties(height=180)
+            )
+            st.altair_chart(cap_chart, use_container_width=True)
+            st.caption("Capex_Supply = blend of manual & macro where both exist.")
+
 
 # (Your existing code continues below… e.g., pillar detection, weights UI, charts)
 
