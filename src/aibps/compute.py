@@ -47,26 +47,47 @@ def keep_one(df: pd.DataFrame | None, name: str) -> pd.DataFrame | None:
     if df is None or df.empty or name not in df.columns: return None
     return df[[name]]
 
-def main():
-    t0 = time.time()
+# ... keep existing imports and helpers ...
 
-    mkt = read_proc("market_processed.csv")
-    crd = read_proc("credit_fred_processed.csv")
-    cap = read_proc("capex_processed.csv")
-    inf = read_proc("infra_processed.csv")
-    adp = read_proc("adoption_processed.csv")
+def main():
+    # ... existing reads ...
+    mkt  = read_proc("market_processed.csv")
+    crd  = read_proc("credit_fred_processed.csv")
+    cap  = read_proc("capex_processed.csv")             # from manual CSV fetcher
+    capM = read_proc("macro_capex_processed.csv")       # NEW: macro FRED fetcher
+    inf  = read_proc("infra_processed.csv")
+    adp  = read_proc("adoption_processed.csv")
 
     parts = []
-    mk = build_market(mkt);    cr = build_credit(crd)
+
+    # Market pillar
+    mk = build_market(mkt)
     if mk is not None: parts.append(mk)
+
+    # Credit pillar
+    cr = build_credit(crd)
     if cr is not None: parts.append(cr)
-    if (cx:=keep_one(cap,"Capex_Supply")) is not None: parts.append(cx)
-    if (ir:=keep_one(inf,"Infra")) is not None: parts.append(ir)
-    if (ap:=keep_one(adp,"Adoption")) is not None: parts.append(ap)
 
-    if not parts:
-        raise RuntimeError("No pillar inputs found in data/processed/")
+    # ---- Capex pillar: blend available sources into Capex_Supply ----
+    cap_sources = []
+    if cap is not None and "Capex_Supply" in cap.columns:
+        cap_sources.append(cap["Capex_Supply"].rename("Capex_Supply"))
+    if capM is not None and "Capex_Supply_Macro" in capM.columns:
+        cap_sources.append(capM["Capex_Supply_Macro"].rename("Capex_Supply"))
+    if cap_sources:
+        capex_blend = pd.concat(cap_sources, axis=1).mean(axis=1, skipna=True).to_frame("Capex_Supply")
+        parts.append(capex_blend)
 
+    # Optional others
+    if inf is not None and "Infra" in inf.columns:
+        parts.append(inf[["Infra"]])
+    if adp is not None and "Adoption" in adp.columns:
+        parts.append(adp[["Adoption"]])
+
+    # ... keep the rest of your compute.py (concat, weights, AIBPS, writes, prints) ...
+
+
+    
     # Outer join across month-end; then drop rows where ALL pillars are NaN
     df = pd.concat(parts, axis=1, join="outer").sort_index()
     df = df[~df.index.duplicated(keep="last")]
