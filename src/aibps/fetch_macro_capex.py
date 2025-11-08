@@ -1,6 +1,7 @@
 # src/aibps/fetch_macro_capex.py
-# Macro Capex (FRED PNRESCAPQUSQ) -> monthly line -> percentile (0–100)
-# Writes: data/processed/macro_capex_processed.csv with column Capex_Supply_Macro
+# Macro Capex (FRED) -> monthly line -> percentile (0–100)
+# Robust: searches FRED for the correct PNFI series if a hard-coded id fails.
+
 import os, sys, time
 import pandas as pd
 import numpy as np
@@ -17,7 +18,6 @@ def _expanding_pct(series: pd.Series) -> pd.Series:
     return pd.Series(out, index=series.index)
 
 def rolling_pct_rank_flexible(series: pd.Series, window: int = 120) -> pd.Series:
-    """Expanding percentile for short histories; rolling for longer."""
     series = series.dropna()
     n = len(series)
     if n == 0:
@@ -30,12 +30,57 @@ def rolling_pct_rank_flexible(series: pd.Series, window: int = 120) -> pd.Series
     minp = max(24, window // 4)
     return series.rolling(window, min_periods=minp).apply(_rank_last, raw=False)
 
+def pick_series(fred):
+    """
+    Pick a good PNFI series from FRED.
+    Priority:
+      1) Real Private Nonresidential Fixed Investment (quarterly)
+      2) Private Nonresidential Fixed Investment (current dollars, quarterly)
+    """
+    # Try common IDs first (fast path)
+    candidates = [
+        ("PNFI", "Real Private Nonresidential Fixed Investment (chained $)"),
+        ("PNFIC1", "Real Private Nonresidential Fixed Investment (SAAR, chained $)"),
+        ("PNFIC96", "Chain-type quantity index (real)"),
+        ("PNFIC", "Private Nonresidential Fixed Investment (current $)"),
+    ]
+    for sid, why in candidates:
+        try:
+            s = fred.get_series(sid, observation_start="2010-01-01")
+            if s is not None and len(s) > 0:
+                print(f"✔ Using FRED series {sid}: {why}")
+                return sid, s
+        except Exception as e:
+            print(f"… {sid} failed: {e}")
+
+    # Slow path: search FRED
+    try:
+        df = fred.search("Private Nonresidential Fixed Investment")
+        if df is not None and not df.empty:
+            # Filter to quarterly
+            if "frequency_short" in df.columns:
+                df = df[df["frequency_short"].str.upper() == "Q"]
+            # Prefer 'Real' in title
+            if "title" in df.columns:
+                df = df.sort_values(
+                    by=["title"], key=lambda c: c.str.contains("Real", case=False, na=False), ascending=False
+                )
+            # Pick the first viable id
+            sid = df.iloc[0]["id"]
+            s = fred.get_series(sid, observation_start="2010-01-01")
+            if s is not None and len(s) > 0:
+                print(f"✔ Using FRED series from search: {sid} — {df.iloc[0].get('title','')}")
+                return sid, s
+    except Exception as e:
+        print(f"FRED search failed: {e}")
+
+    raise RuntimeError("Could not find a valid PNFI series on FRED.")
+
 def main():
     t0 = time.time()
     api_key = os.environ.get("FRED_API_KEY")
     if not api_key:
-        print("❌ FRED_API_KEY not found in environment; set GitHub Secret FRED_API_KEY.")
-        # Write empty header so pipeline stays green but signal caller
+        print("❌ FRED_API_KEY not found. Set GitHub Secret FRED_API_KEY.")
         pd.DataFrame(columns=["Capex_Supply_Macro"]).to_csv(OUT)
         sys.exit(1)
 
@@ -48,35 +93,34 @@ def main():
 
     fred = Fred(api_key=api_key)
 
-    # 1) Fetch BEA/FRED quarterly series (Billions SAAR), from 2010 for depth
-    series_id = "PNRESCAPQUSQ"
-    q = fred.get_series(series_id, observation_start="2010-01-01")
-    if q is None or len(q) == 0:
-        print("❌ FRED returned empty series.")
-        pd.DataFrame(columns=["Capex_Supply_Macro"]).to_csv(OUT)
-        sys.exit(1)
+    # Select a working PNFI series
+    sid, q = pick_series(fred)
 
-    q.index = pd.to_datetime(q.index)  # quarter end
-    q = q.sort_index()
+    # Ensure datetime index (quarter-ends) and sort
+    q.index = pd.to_datetime(q.index, errors="coerce")
+    q = q[~q.index.isna()].sort_index()
 
-    # 2) Convert to monthly: linear interpolation between quarter-ends
+    # Convert quarterly to monthly via linear interpolation on a month-end grid
     start = q.index.min().to_period("M").to_timestamp("M")
     end   = pd.Timestamp.today().to_period("M").to_timestamp("M")
     idx_m = pd.period_range(start, end, freq="M").to_timestamp("M")
-    m = q.reindex(idx_m).interpolate(method="linear")  # monthly SAAR proxy
+    m = q.reindex(idx_m).interpolate(method="linear")
+    m.index.name = "date"
 
-    # Optional normalization (e.g., per GDP) can go here if desired
-
-    # 3) Percentile scaling (0–100) using 10y window with flexible fallback
+    # Percentile scaling (0–100) with flexible fallback
     capex_pct = rolling_pct_rank_flexible(m, window=120)
-    capex_pct.index.name = "date"
 
     out = pd.DataFrame({"Capex_Supply_Macro": capex_pct}).dropna(how="all")
     out.to_csv(OUT)
-    print(f"💾 Wrote {OUT} ({len(out)} rows)")
+
+    print(f"💾 Wrote {OUT} ({len(out)} rows) • FRED series used: {sid}")
     print("Tail:")
     print(out.tail(6))
     print(f"⏱  Done in {time.time()-t0:.2f}s")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"❌ fetch_macro_capex.py: {e}")
+        sys.exit(1)
