@@ -1,18 +1,20 @@
 # src/aibps/compute.py
 # Robust compute for AIBPS:
 # - Reads processed pillar inputs from data/processed/
-# - Builds Market, Credit, Capex_Supply (manual + macro blend)
-# - Forward-fills Capex up to 6 months so it doesn't disappear at the tail
-# - Keeps Capex_Supply_Manual / Capex_Supply_Macro for debugging
-# - Writes data/processed/aibps_monthly.csv
+# - Builds Market, Credit, Capex_Supply (manual + macro), Infra (manual + macro),
+#   Adoption, Sentiment
+# - Writes data/processed/aibps_monthly.csv with all pillars + AIBPS + AIBPS_RA
 
-import os, sys, time
+import os
+import sys
+import time
 import numpy as np
 import pandas as pd
 
 PRO_DIR = os.path.join("data", "processed")
 OUT = os.path.join(PRO_DIR, "aibps_monthly.csv")
 os.makedirs(PRO_DIR, exist_ok=True)
+
 
 def read_proc(filename: str) -> pd.DataFrame | None:
     path = os.path.join(PRO_DIR, filename)
@@ -21,6 +23,7 @@ def read_proc(filename: str) -> pd.DataFrame | None:
         return None
     try:
         df = pd.read_csv(path, index_col=0, parse_dates=True)
+        # Empty or all-NaN → treat as missing
         if df.empty or df.dropna(how="all").empty:
             print(f"ℹ️ {filename} is empty or all-NaN; ignoring.")
             return None
@@ -37,6 +40,7 @@ def read_proc(filename: str) -> pd.DataFrame | None:
         print(f"⚠️ read_proc({filename}) failed: {e}")
         return None
 
+
 def build_market(mkt: pd.DataFrame | None) -> pd.DataFrame | None:
     if mkt is None or mkt.empty:
         return None
@@ -47,6 +51,7 @@ def build_market(mkt: pd.DataFrame | None) -> pd.DataFrame | None:
         return None
     ser = mkt[mcols].mean(axis=1, skipna=True)
     return ser.to_frame("Market")
+
 
 def build_credit(crd: pd.DataFrame | None) -> pd.DataFrame | None:
     if crd is None or crd.empty:
@@ -59,19 +64,21 @@ def build_credit(crd: pd.DataFrame | None) -> pd.DataFrame | None:
     ser = crd[ccols].mean(axis=1, skipna=True)
     return ser.to_frame("Credit")
 
+
 def main():
     t0 = time.time()
 
-    # ---- Load processed sources (optional ones may be missing) ----
-    mkt   = read_proc("market_processed.csv")
-    crd   = read_proc("credit_fred_processed.csv")
-    cap   = read_proc("capex_processed.csv")          # manual / corporate
-    capM  = read_proc("macro_capex_processed.csv")    # macro FRED
-    infra = read_proc("infra_processed.csv")
-    adop  = read_proc("adoption_processed.csv")
-    sent  = read_proc("sentiment_processed.csv")
+    # ---- Load processed sources ----
+    mkt    = read_proc("market_processed.csv")
+    crd    = read_proc("credit_fred_processed.csv")
+    cap    = read_proc("capex_processed.csv")            # manual capex
+    capM   = read_proc("macro_capex_processed.csv")      # macro capex
+    infra  = read_proc("infra_processed.csv")            # manual infra
+    infraM = read_proc("infra_macro_processed.csv")      # macro infra
+    adop   = read_proc("adoption_processed.csv")
+    sent   = read_proc("sentiment_processed.csv")
 
-    pieces = []
+    pieces: list[pd.DataFrame] = []
 
     # ---- Market pillar ----
     mk = build_market(mkt)
@@ -86,9 +93,10 @@ def main():
     # ---- Capex components & blended pillar ----
     cap_sources = []
     cap_manual = None
-    cap_macro  = None
+    cap_macro = None
 
     if cap is not None:
+        # Expect Capex_Supply (we'll treat as manual)
         if "Capex_Supply" in cap.columns:
             cap_manual = cap["Capex_Supply"].rename("Capex_Supply_Manual")
             cap_sources.append(cap_manual.rename("Capex_Supply"))
@@ -116,13 +124,10 @@ def main():
         cap_full = pd.concat(cap_cols, axis=1)
         pieces.append(cap_full)
 
-# ---- Infra pillar ----
-    infraM = read_proc("infra_macro_processed.csv")
-   
-# ---- Infra components & blended pillar ----
+    # ---- Infra components & blended pillar ----
     infra_sources = []
     infra_manual = None
-    infra_macro  = None
+    infra_macro = None
 
     if infra is not None and "Infra" in infra.columns:
         infra_manual = infra["Infra"].rename("Infra_Manual")
@@ -146,13 +151,6 @@ def main():
         infra_full = pd.concat(infra_cols, axis=1)
         pieces.append(infra_full)
 
-        
-    if adop is not None and "Adoption" in adop.columns:
-        pieces.append(adop[["Adoption"]])
-
-    if not pieces:
-        raise RuntimeError("No pillar inputs found. Check processed CSVs in data/processed/.")
-   
     # ---- Adoption pillar ----
     if adop is not None and "Adoption" in adop.columns:
         pieces.append(adop[["Adoption"]])
@@ -161,21 +159,15 @@ def main():
     if sent is not None and "Sentiment" in sent.columns:
         pieces.append(sent[["Sentiment"]])
 
-    
+    if not pieces:
+        raise RuntimeError("No pillar inputs found. Check processed CSVs in data/processed/.")
+
     # ---- Join all pieces on month-end index ----
     df = pd.concat(pieces, axis=1, join="outer").sort_index()
     df = df[~df.index.duplicated(keep="last")]
 
-    # ---- Forward-fill Capex up to 6 months so it doesn't vanish at the tail ----
-    if "Capex_Supply" in df.columns:
-        df["Capex_Supply"] = df["Capex_Supply"].ffill(limit=6)
-    if "Capex_Supply_Manual" in df.columns:
-        df["Capex_Supply_Manual"] = df["Capex_Supply_Manual"].ffill(limit=6)
-    if "Capex_Supply_Macro" in df.columns:
-        df["Capex_Supply_Macro"] = df["Capex_Supply_Macro"].ffill(limit=6)
-
     # ---- Drop rows where all main pillars are NaN ----
-    main_pillars = [c for c in ["Market", "Capex_Supply", "Credit", "Infra", "Adoption"] if c in df.columns]
+    main_pillars = [c for c in ["Market", "Capex_Supply", "Infra", "Adoption", "Sentiment", "Credit"] if c in df.columns]
     if main_pillars:
         df = df.loc[~df[main_pillars].isna().all(axis=1)]
 
@@ -184,29 +176,38 @@ def main():
     if core:
         df = df.loc[~df[core].isna().all(axis=1)]
 
-    # ---- Static baseline composite (app recomputes with sliders) ----
-        desired  = ["Market", "Capex_Supply", "Infra", "Adoption", "Sentiment", "Credit"]
-    present  = [p for p in desired if p in df.columns]
+    # ---- Static baseline composite (app recomputes AIBPS with sliders) ----
+    desired = ["Market", "Capex_Supply", "Infra", "Adoption", "Sentiment", "Credit"]
+    present = [p for p in desired if p in df.columns]
+
+    # Default weights (will be renormalized)
     defaults = {
         "Market":        0.25,
-        "Capex_Supply":  0.25,
+        "Capex_Supply":  0.20,
         "Infra":         0.15,
         "Adoption":      0.15,
         "Sentiment":     0.10,
-        "Credit":        0.10,
+        "Credit":        0.15,
     }
-    w = np.array([defaults[p] for p in present], dtype=float)
-    w = w / w.sum() if w.sum() else np.ones(len(present)) / max(len(present), 1)
 
-    df["AIBPS"] = (df[present] * w).sum(axis=1, skipna=True)
-    df["AIBPS_RA"] = df["AIBPS"].rolling(3, min_periods=1).mean()
+    if present:
+        # Build a Series aligned to present pillars to avoid shape mismatches
+        w_series = pd.Series({p: defaults.get(p, 1.0) for p in present}, index=present)
+        w_series = w_series / w_series.sum() if w_series.sum() else pd.Series(
+            np.ones(len(present)) / len(present), index=present
+        )
+
+        df["AIBPS"] = df[present].mul(w_series, axis=1).sum(axis=1, skipna=True)
+        df["AIBPS_RA"] = df["AIBPS"].rolling(3, min_periods=1).mean()
+    else:
+        df["AIBPS"] = np.nan
+        df["AIBPS_RA"] = np.nan
 
     # ---- Sanity prints ----
     print("---- Columns in composite ----")
     print(list(df.columns))
 
-    # ---- Debug tail print ----
-    print("---- Tail (Market / Capex_Supply / components / Infra / Adoption / Sentiment / Credit / AIBPS_RA) ----")
+    print("---- Tail (key pillars & AIBPS_RA) ----")
     for col in [
         c
         for c in [
@@ -231,7 +232,8 @@ def main():
     # ---- Write output ----
     df.to_csv(OUT)
     print(f"💾 Wrote {OUT} with pillars: {present} (rows={len(df)})")
-    print(f"⏱ Done in {time.time()-t0:.2f}s")
+    print(f"⏱ Done in {time.time() - t0:.2f}s")
+
 
 if __name__ == "__main__":
     try:
