@@ -1,0 +1,9 @@
+date,segment,metric,value,unit,notes
+2017-12-31,market,ai_sentiment_index,20,index,Early interest in AI/ML
+2018-12-31,market,ai_sentiment_index,25,index,Rising AI coverage
+2019-12-31,market,ai_sentiment_index,35,index,Cloud/ML hype building
+2020-12-31,market,ai_sentiment_index,40,index,COVID + tech outperformance
+2021-12-31,market,ai_sentiment_index,55,index,Big Tech / AI optimism
+2022-12-31,market,ai_sentiment_index,65,index,Pre-GenAI narrative
+2023-12-31,market,ai_sentiment_index,85,index,GenAI mania peak
+2024-03-31,market,ai_sentiment_index,80,index,Post-peak but still elevated
