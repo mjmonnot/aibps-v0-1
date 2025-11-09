@@ -152,7 +152,16 @@ def main():
 
     if not pieces:
         raise RuntimeError("No pillar inputs found. Check processed CSVs in data/processed/.")
+   
+    # ---- Adoption pillar ----
+    if adop is not None and "Adoption" in adop.columns:
+        pieces.append(adop[["Adoption"]])
 
+    # ---- Sentiment pillar ----
+    if sent is not None and "Sentiment" in sent.columns:
+        pieces.append(sent[["Sentiment"]])
+
+    
     # ---- Join all pieces on month-end index ----
     df = pd.concat(pieces, axis=1, join="outer").sort_index()
     df = df[~df.index.duplicated(keep="last")]
