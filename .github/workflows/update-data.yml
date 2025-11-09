@@ -1,49 +1,36 @@
 name: Update data and compute AIBPS
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"   # every 6 hours (UTC)
   workflow_dispatch:
-
-permissions:
-  contents: write
+  schedule:
+    - cron: "0 6 * * *"  # daily at 06:00 UTC (tweak if you like)
 
 jobs:
-  build:
+  update-data:
     runs-on: ubuntu-latest
-    concurrency:
-      group: aibps-update
-      cancel-in-progress: false
 
     steps:
-      - name: Check out repo
+      # ----- CHECKOUT -----
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
-          persist-credentials: true
 
-      - name: Show branch and last commit
-        run: |
-          echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
-          echo "Commit: $(git rev-parse HEAD)"
-          git log -1 --stat
-
+      # ----- PYTHON SETUP -----
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ----- MARKET (SAFE) -----
-      - name: Fetch market proxies (SAFE)
+      # ----- MARKET -----
+      - name: Fetch Market (yfinance)
         run: |
-          python src/aibps/fetch_market_safe.py
+          python src/aibps/fetch_market.py
 
       - name: Sanity print market tail
         run: |
@@ -55,7 +42,7 @@ jobs:
           fi
 
       # ----- CREDIT (FRED) -----
-      - name: Fetch credit (FRED)
+      - name: Fetch Credit (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
@@ -70,7 +57,7 @@ jobs:
             echo "credit_fred_processed.csv missing"
           fi
 
-      # ----- CAPEX (manual CSV) -----
+      # ----- CAPEX (manual + macro) -----
       - name: Fetch Capex (manual CSV)
         run: |
           python src/aibps/fetch_capex.py
@@ -83,8 +70,8 @@ jobs:
           else
             echo "capex_processed.csv missing"
           fi
-      # ----- MACRO CAPEX (FRED) -----
-      - name: Fetch macro Capex (FRED PNRESCAPQUSQ)
+
+      - name: Fetch Macro Capex (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
@@ -98,8 +85,8 @@ jobs:
           else
             echo "macro_capex_processed.csv missing"
           fi
-      
-      # ----- INFRA (manual CSV) -----
+
+      # ----- INFRA (manual + macro) -----
       - name: Fetch Infra (manual CSV)
         run: |
           python src/aibps/fetch_infra.py
@@ -113,8 +100,7 @@ jobs:
             echo "infra_processed.csv missing"
           fi
 
-      # ----- INFRA MACRO (FRED) -----
-      - name: Fetch Infra Macro (FRED)
+      - name: Fetch Macro Infra (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
@@ -128,7 +114,8 @@ jobs:
           else
             echo "infra_macro_processed.csv missing"
           fi
-      # ----- ADOPTION (manual CSV) -----
+
+      # ----- ADOPTION (manual) -----
       - name: Fetch Adoption (manual CSV)
         run: |
           python src/aibps/fetch_adoption.py
@@ -141,7 +128,7 @@ jobs:
           else
             echo "adoption_processed.csv missing"
           fi
-     
+
       # ----- SENTIMENT (Google Trends) -----
       - name: Fetch Sentiment (Google Trends)
         run: |
@@ -156,10 +143,8 @@ jobs:
             echo "sentiment_processed.csv missing"
           fi
 
-
-
       # ----- COMPUTE -----
-      - name: Compute AIBPS
+      - name: Compute AIBPS composite
         run: |
           python src/aibps/compute.py
 
@@ -167,57 +152,23 @@ jobs:
         run: |
           echo "---- TAIL: data/processed/aibps_monthly.csv ----"
           if [ -f data/processed/aibps_monthly.csv ]; then
-            tail -n 12 data/processed/aibps_monthly.csv
+            tail -n 10 data/processed/aibps_monthly.csv
           else
             echo "aibps_monthly.csv missing"
           fi
 
-      # ----- BUILD METADATA -----
-      - name: Write build metadata
-        env:
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          python - << 'PY'
-          import os, json, time
-          repo = os.environ.get('GITHUB_REPOSITORY','')
-          run_id = os.environ.get('GITHUB_RUN_ID','')
-          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else None
-          ref = os.environ.get('GITHUB_REF','')
-          short_ref = ref.split('/')[-1] if ref else ''
-          meta = {
-            "updated_at_utc": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            "github_run_id": run_id,
-            "github_run_number": os.environ.get('GITHUB_RUN_NUMBER'),
-            "github_sha": os.environ.get('GITHUB_SHA'),
-            "github_ref": short_ref,
-            "github_run_url": run_url,
-            "github_repository": repo,
-          }
-          os.makedirs('data/processed', exist_ok=True)
-          with open('data/processed/metadata.json','w') as f:
-              json.dump(meta, f, indent=2)
-          print(json.dumps(meta, indent=2))
-          PY
-
       # ----- COMMIT & PUSH -----
-      - name: Commit processed files
+      - name: Commit and push if changed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add data/raw/*.csv data/processed/*.csv data/processed/metadata.json || true
-
-          if git diff --cached --quiet; then
+          git status
+          if [ -n "$(git status --porcelain data/processed data/raw || true)" ]; then
+            git add data/processed data/raw
+            git commit -m "Auto-update data ($(date -u +%Y-%m-%dT%H:%M:%SZ))" || echo "Nothing to commit"
+            git push origin HEAD:main
+          else
             echo "No data changes to commit."
-            exit 0
           fi
-
-          git fetch origin main
-          git pull --rebase origin main || true
-
-          git commit -m "Auto-update data ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))" || true
-          git push origin HEAD:main
