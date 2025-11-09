@@ -185,7 +185,7 @@ def main():
         df = df.loc[~df[core].isna().all(axis=1)]
 
     # ---- Static baseline composite (app recomputes with sliders) ----
-    desired  = ["Market", "Capex_Supply", "Infra", "Adoption", "Credit"]
+    desired  = ["Market", "Capex_Supply", "Infra", "Adoption", "Sentiment", "Credit"]
     present  = [p for p in desired if p in df.columns]
     defaults = {"Market":0.25, "Capex_Supply":0.25, "Infra":0.20, "Adoption":0.15, "Credit":0.15}
     w = np.array([defaults[p] for p in present], dtype=float)
