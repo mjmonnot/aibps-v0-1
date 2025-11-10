@@ -11,11 +11,20 @@ Pillars:
 - Sentiment
 
 Canonical normalization:
-- All pillars use "rolling_z_sigmoid" -> 0–100 heat score.
-- Windows differ by pillar:
-    - Market, Credit: 120 months  (~10 years, long-cycle)
-    - Capex_Supply, Infra: 36 months (~3 years, investment cycles)
-    - Adoption, Sentiment: 24 months (~2 years, hype/adoption pulses)
+- All pillars use "rolling_z_sigmoid" -> 0–100 heat score by default.
+- Windows differ by pillar, but are configurable via config.yaml:
+
+    normalization:
+      defaults:
+        method: rolling_z_sigmoid
+        window: 24
+        z_clip: 4.0
+      pillars:
+        Market:
+          method: rolling_z_sigmoid
+          window: 120
+        ...
+
 """
 
 import os
@@ -24,18 +33,19 @@ import time
 
 import numpy as np
 import pandas as pd
+import yaml
 
-# Make sure "src" is on sys.path so we can import aibps.normalize
-HERE = os.path.dirname(__file__)              # .../src/aibps
-SRC_ROOT = os.path.abspath(os.path.join(HERE, ".."))  # .../src
+# Ensure we can import aibps.normalize when running as a script
+HERE = os.path.dirname(__file__)                       # .../src/aibps
+SRC_ROOT = os.path.abspath(os.path.join(HERE, ".."))   # .../src
 if SRC_ROOT not in sys.path:
     sys.path.insert(0, SRC_ROOT)
 
-from aibps.normalize import normalize_series
-
+from aibps.normalize import normalize_series  # noqa: E402
 
 PROC_DIR = os.path.join("data", "processed")
 OUT_PATH = os.path.join(PROC_DIR, "aibps_monthly.csv")
+CONFIG_PATH = os.path.join(HERE, "config.yaml")
 
 
 def _read_processed(filename: str) -> pd.DataFrame | None:
@@ -53,6 +63,35 @@ def _read_processed(filename: str) -> pd.DataFrame | None:
     except Exception as e:
         print(f"❌ Error reading {filename}: {e}")
         return None
+
+
+def _load_norm_config():
+    """
+    Load normalization config from config.yaml, if present.
+
+    Returns
+    -------
+    defaults : dict
+        Default normalization kwargs (method, window, z_clip, etc.).
+    pillar_cfg : dict
+        Mapping pillar_name -> dict of norm kwargs.
+    """
+    if not os.path.exists(CONFIG_PATH):
+        print(f"ℹ️ No config.yaml at {CONFIG_PATH}; using built-in normalization defaults.")
+        return {}, {}
+
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"❌ Failed to load config.yaml: {e}")
+        return {}, {}
+
+    norm_cfg = cfg.get("normalization", {})
+    defaults = norm_cfg.get("defaults", {}) or {}
+    pillar_cfg = norm_cfg.get("pillars", {}) or {}
+    print("🔧 Loaded normalization config from config.yaml")
+    return defaults, pillar_cfg
 
 
 def main():
@@ -76,15 +115,15 @@ def main():
     # Build a monthly date index covering all available data
     start = min(df.index.min() for df in frames)
     end = max(df.index.max() for df in frames)
-    idx = pd.date_range(start=start.to_period("M").to_timestamp("M"),
-                        end=end.to_period("M").to_timestamp("M"),
-                        freq="M")
+    idx = pd.date_range(
+        start=start.to_period("M").to_timestamp("M"),
+        end=end.to_period("M").to_timestamp("M"),
+        freq="M",
+    )
     base = pd.DataFrame(index=idx)
     base.index.name = "date"
 
     # ---- Attach "raw-ish" pillar series ----
-    # We treat the main processed columns as raw signals suitable for normalization.
-    # If your processed files are already normalized, this will re-normalize them in a consistent way.
 
     # Market
     if market is not None:
@@ -98,7 +137,6 @@ def main():
 
     # Capex (manual)
     if capex is not None:
-        # Accept either "Capex_Supply" or "Capex_Supply_Manual"
         if "Capex_Supply" in capex.columns:
             base["Capex_Supply_Manual_raw"] = capex["Capex_Supply"].reindex(base.index)
         elif "Capex_Supply_Manual" in capex.columns:
@@ -132,6 +170,7 @@ def main():
             base["Sentiment_raw"] = sentiment["Sentiment"].reindex(base.index)
 
     # ---- Combine manual/macro where relevant ----
+
     # Capex_Supply = mean of manual + macro where both exist
     if ("Capex_Supply_Manual_raw" in base.columns) or ("Capex_Supply_Macro_raw" in base.columns):
         cols = [c for c in ["Capex_Supply_Manual_raw", "Capex_Supply_Macro_raw"] if c in base.columns]
@@ -142,33 +181,47 @@ def main():
         cols = [c for c in ["Infra_Manual_raw", "Infra_Macro_raw"] if c in base.columns]
         base["Infra_raw"] = base[cols].mean(axis=1, skipna=True)
 
-    # ---- Normalization config (rolling_z_sigmoid for all pillars) ----
+    # ---- Normalization config ----
 
-    # Windows in months for each pillar
-    norm_windows = {
-        "Market": 120,        # ~10 years
-        "Credit": 120,        # ~10 years
-        "Capex_Supply": 36,   # ~3 years
-        "Infra": 36,          # ~3 years
-        "Adoption": 24,       # ~2 years
-        "Sentiment": 24,      # ~2 years
-    }
+    defaults, pillar_cfg = _load_norm_config()
 
+    def get_norm_params(pillar_name: str):
+        """
+        Look up normalization method and kwargs for a pillar.
+
+        Precedence:
+          1) normalization.pillars.<name>.<...>
+          2) normalization.defaults.<...>
+          3) hard-coded fallback: rolling_z_sigmoid, window=24, z_clip=4.0
+        """
+        cfg = pillar_cfg.get(pillar_name, {})
+        method = cfg.get("method", defaults.get("method", "rolling_z_sigmoid"))
+        # Collect kwargs except 'method'
+        kwargs = {k: v for k, v in {**defaults, **cfg}.items() if k != "method"}
+        if "window" not in kwargs:
+            kwargs["window"] = 24
+        if "z_clip" not in kwargs:
+            kwargs["z_clip"] = 4.0
+        return method, kwargs
+
+    canonical_pillars = ["Market", "Credit", "Capex_Supply", "Infra", "Adoption", "Sentiment"]
     normalized_pillars = []
 
-    for name, window in norm_windows.items():
+    for name in canonical_pillars:
         raw_col = f"{name}_raw"
         if raw_col not in base.columns:
-            print(f"ℹ️ No raw series for {name}; skipping normalization for this pillar.")
+            print(f"ℹ️ No raw series for {name}; skipping.")
             continue
 
-        print(f"🔧 Normalizing {name} using rolling_z_sigmoid (window={window})")
-        norm_series = normalize_series(
-            base[raw_col],
-            method="rolling_z_sigmoid",
-            window=window,
-            z_clip=4.0,
-        )
+        method, kwargs = get_norm_params(name)
+        print(f"🔧 Normalizing {name} with method={method}, params={kwargs}")
+
+        try:
+            norm_series = normalize_series(base[raw_col], method=method, **kwargs)
+        except Exception as e:
+            print(f"❌ Normalization failed for {name}: {e}")
+            continue
+
         base[name] = norm_series
         normalized_pillars.append(name)
 
@@ -178,7 +231,6 @@ def main():
 
     # ---- Compute AIBPS composite ----
 
-    # Equal weights across all available normalized pillars
     w = np.ones(len(normalized_pillars), dtype=float)
     w = w / w.sum()
     weights = pd.Series(w, index=normalized_pillars)
@@ -188,11 +240,9 @@ def main():
     print("---- Weights ----")
     print(weights)
 
-    # Composite (AIBPS) and 3-month rolling average (AIBPS_RA)
     base["AIBPS"] = base[normalized_pillars].mul(weights, axis=1).sum(axis=1, skipna=True)
     base["AIBPS_RA"] = base["AIBPS"].rolling(3, min_periods=1).mean()
 
-    # Drop rows that are completely NaN for composite
     out = base.dropna(subset=["AIBPS"], how="all")
 
     # ---- Debug tail ----
