@@ -8,7 +8,7 @@ RAW_DIR = os.path.join("data","raw")
 PRO_DIR = os.path.join("data","processed")
 os.makedirs(RAW_DIR, exist_ok=True); os.makedirs(PRO_DIR, exist_ok=True)
 
-START   = "2015-01-01"
+START   = "1980-01-01"
 TICKERS = ["SOXX","QQQ"]
 
 def rolling_pct_rank(series: pd.Series, window: int = 120) -> pd.Series:
