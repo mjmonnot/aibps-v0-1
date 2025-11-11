@@ -66,12 +66,12 @@ normalization:
   pillars:
     Market:
       method: rolling_z_sigmoid
-      window: 120   # ~10 years, long-cycle
+      window: 60
       z_clip: 4.0
 
     Credit:
       method: rolling_z_sigmoid
-      window: 120   # ~10 years
+      window: 60
       z_clip: 4.0
 
     Capex_Supply:
