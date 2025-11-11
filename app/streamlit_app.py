@@ -1,5 +1,4 @@
 import os
-import time
 from datetime import datetime
 
 import numpy as np
@@ -40,10 +39,6 @@ available_pillars = [p for p in PILLAR_CANDIDATES if p in df.columns]
 if not available_pillars:
     st.error("No known pillars found in composite file.")
     st.stop()
-
-# Try to detect any pre-computed composite columns
-precomp_cols = [c for c in df.columns if c.lower() in ["aibps", "aibps_ra", "composite", "aibps_ra_norm"]]
-
 
 # ---------- Sidebar: weights & options ----------
 with st.sidebar:
@@ -93,7 +88,6 @@ with st.sidebar:
 
 # ---------- Prepare composite (in-app and/or precomputed) ----------
 
-# Use pillars as 0–100 normalized inputs
 pillars_df = df[available_pillars].copy()
 
 # In-app composite (based on sidebar weights)
@@ -101,12 +95,8 @@ comp_in_app = (pillars_df * weights).sum(axis=1)
 comp_in_app_ra = comp_in_app.rolling(3, min_periods=1).mean()
 
 # Precomputed composite (if available)
-precomp_raw = None
-precomp_ra = None
-if "AIBPS" in df.columns:
-    precomp_raw = df["AIBPS"]
-if "AIBPS_RA" in df.columns:
-    precomp_ra = df["AIBPS_RA"]
+precomp_raw = df["AIBPS"] if "AIBPS" in df.columns else None
+precomp_ra = df["AIBPS_RA"] if "AIBPS_RA" in df.columns else None
 
 # Decide which composite to plot
 if composite_source == "In-app recomputed":
@@ -114,7 +104,6 @@ if composite_source == "In-app recomputed":
     comp_ra = comp_in_app_ra
     comp_label = "AIBPS (in-app composite)"
 else:
-    # fall back gracefully if no precomputed
     if precomp_ra is not None:
         comp_ra = precomp_ra
         comp_raw = precomp_raw if precomp_raw is not None else precomp_ra
@@ -163,26 +152,43 @@ st.subheader("AI Bubble Pressure Score over time")
 
 df_plot = comp_df.reset_index().rename(columns={"index": "date"})
 
-# Regime bands (0–25, 25–50, 50–75, 75–100)
+# Get x-range for shading
+x_min = df_plot["date"].min()
+x_max = df_plot["date"].max()
+
+# Regime bands across full x-range
 bands_df = pd.DataFrame(
     [
-        {"ymin": 0, "ymax": 25, "label": "Low", "color": "#d9f0d3"},
-        {"ymin": 25, "ymax": 50, "label": "Elevated", "color": "#ffffbf"},
-        {"ymin": 50, "ymax": 75, "label": "High", "color": "#fee090"},
-        {"ymin": 75, "ymax": 100, "label": "Extreme", "color": "#fc8d59"},
+        {"date_start": x_min, "date_end": x_max, "ymin": 0, "ymax": 25, "label": "Low"},
+        {"date_start": x_min, "date_end": x_max, "ymin": 25, "ymax": 50, "label": "Elevated"},
+        {"date_start": x_min, "date_end": x_max, "ymin": 50, "ymax": 75, "label": "High"},
+        {"date_start": x_min, "date_end": x_max, "ymin": 75, "ymax": 100, "label": "Extreme"},
     ]
 )
 
+band_colors = {
+    "Low": "#d9f0d3",
+    "Elevated": "#ffffbf",
+    "High": "#fee090",
+    "Extreme": "#fc8d59",
+}
+
 bands = (
     alt.Chart(bands_df)
-    .mark_rect(opacity=0.25)
+    .mark_rect(opacity=0.35)
     .encode(
+        x=alt.X("date_start:T", title="Date"),
+        x2="date_end:T",
         y="ymin:Q",
         y2="ymax:Q",
-        color=alt.Color("label:N", scale=alt.Scale(
-            domain=["Low", "Elevated", "High", "Extreme"],
-            range=["#d9f0d3", "#ffffbf", "#fee090", "#fc8d59"],
-        ), legend=alt.Legend(title="Regime")),
+        color=alt.Color(
+            "label:N",
+            scale=alt.Scale(
+                domain=list(band_colors.keys()),
+                range=list(band_colors.values()),
+            ),
+            legend=alt.Legend(title="Regime"),
+        ),
     )
 )
 
@@ -200,14 +206,14 @@ aibps_line = (
     )
 )
 
-# Historical bubble event markers
+# Historical bubble event markers (staggered vertically)
 event_data = pd.DataFrame(
     [
-        {"date": pd.Timestamp("2000-03-01"), "label": "Dot-com peak"},
-        {"date": pd.Timestamp("2006-07-01"), "label": "US housing peak"},
-        {"date": pd.Timestamp("2007-10-01"), "label": "Pre-GFC peak"},
-        {"date": pd.Timestamp("2008-09-15"), "label": "Lehman"},
-        {"date": pd.Timestamp("2023-03-15"), "label": "AI boom"},
+        {"date": pd.Timestamp("2000-03-01"), "label": "Dot-com peak", "ypos": 12},
+        {"date": pd.Timestamp("2006-07-01"), "label": "US housing peak", "ypos": 26},
+        {"date": pd.Timestamp("2007-10-01"), "label": "Pre-GFC peak", "ypos": 40},
+        {"date": pd.Timestamp("2008-09-15"), "label": "Lehman", "ypos": 54},
+        {"date": pd.Timestamp("2023-03-15"), "label": "AI boom", "ypos": 68},
     ]
 )
 
@@ -225,10 +231,10 @@ event_rules = (
 
 event_labels = (
     alt.Chart(event_data)
-    .mark_text(align="left", baseline="top", dx=3, dy=3, color="gray", fontSize=11)
+    .mark_text(align="left", baseline="middle", dx=5, dy=0, color="gray", fontSize=11)
     .encode(
         x="date:T",
-        y=alt.value(5),
+        y=alt.Y("ypos:Q", scale=alt.Scale(domain=[0, 100])),
         text="label:N",
     )
 )
