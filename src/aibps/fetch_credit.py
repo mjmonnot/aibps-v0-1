@@ -27,7 +27,7 @@ def fetch_fred():
         fred = Fred(api_key=key)
 
         # explicitly pull as much history as possible
-        start_date = "1990-01-01"
+        start_date = "1980-01-01"
 
         hy = fred.get_series(HY_SERIES, observation_start=start_date)
         ig = fred.get_series(IG_SERIES, observation_start=start_date)
