@@ -86,6 +86,23 @@ jobs:
             echo "macro_capex_processed.csv missing"
           fi
 
+      - name: Fetch credit (FRED deep)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python src/aibps/fetch_credit.py
+          echo "---- TAIL: data/processed/credit_fred_processed.csv ----"
+          tail -n 10 data/processed/credit_fred_processed.csv || true
+
+      - name: Fetch macro capex (PNFI + UNXANO)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python src/aibps/fetch_capex_macro.py
+          echo "---- TAIL: data/processed/macro_capex_processed.csv ----"
+          tail -n 10 data/processed/macro_capex_processed.csv || true
+
+
       # ----- INFRA (manual + macro) -----
       - name: Fetch Infra (manual CSV)
         run: |
