@@ -25,14 +25,30 @@ def fetch_fred():
     try:
         from fredapi import Fred
         fred = Fred(api_key=key)
-        hy = fred.get_series(HY_SERIES)
-        ig = fred.get_series(IG_SERIES)
-        df = pd.concat([pd.Series(hy, name="HY_OAS"), pd.Series(ig, name="IG_OAS")], axis=1)
-        df.index = pd.to_datetime(df.index); df.index.name = "Date"
+
+        # explicitly pull as much history as possible
+        start_date = "1990-01-01"
+
+        hy = fred.get_series(HY_SERIES, observation_start=start_date)
+        ig = fred.get_series(IG_SERIES, observation_start=start_date)
+
+        df = pd.concat(
+            [
+                pd.Series(hy, name="HY_OAS"),
+                pd.Series(ig, name="IG_OAS")
+            ],
+            axis=1
+        )
+
+        df.index = pd.to_datetime(df.index)
+        df.index.name = "Date"
+        print(f"✅ Fetched FRED data from {df.index.min().date()} to {df.index.max().date()}")
         return df.sort_index()
+
     except Exception as e:
         print(f"⚠️ FRED fetch failed: {e}")
         return None
+
 
 def load_sample_or_generate():
     sample = os.path.join("data","sample","credit_fred_sample.csv")
