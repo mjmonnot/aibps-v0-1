@@ -1,20 +1,30 @@
 # src/aibps/fetch_credit.py
 from __future__ import annotations
+
 import os
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+
 
 DATA_DIR = Path("data")
 PROC_OUT = DATA_DIR / "processed" / "credit_fred_processed.csv"
 
-# FRED series (verified)
-AAA = "AAA"          # Moody's Seasoned Aaa Corporate Bond Yield (monthly)  [FRED]
-BAA = "BAA"          # Moody's Seasoned Baa Corporate Bond Yield (monthly)  [FRED]
-HY_OAS = "BAMLH0A0HYM2"  # ICE BofA US High Yield OAS (bp)                  [FRED]
-IG_OAS = "BAMLC0A0CM"    # ICE BofA US Corporate Index OAS (bp)             [FRED]
+# FRED series IDs
+AAA = "AAA"              # Moody's Seasoned Aaa Corporate Bond Yield (%)
+BAA = "BAA"              # Moody's Seasoned Baa Corporate Bond Yield (%)
+HY_OAS = "BAMLH0A0HYM2"  # ICE BofA US High Yield OAS (bp)
 
-START = "1980-01-01"  # go as deep as you like
+START = "1980-01-01"
+
+
+def _to_monthly(s: pd.Series) -> pd.Series:
+    s = s.sort_index()
+    s.index = pd.to_datetime(s.index)
+    s.index.name = "date"
+    return s.resample("M").last()
+
 
 def main():
     key = os.getenv("FRED_API_KEY")
@@ -25,33 +35,47 @@ def main():
     from fredapi import Fred
     fred = Fred(api_key=key)
 
-    def get(sid):
+    def get_series(sid: str) -> pd.Series:
         s = fred.get_series(sid, observation_start=START)
         s = pd.Series(s, name=sid).sort_index()
         s.index = pd.to_datetime(s.index)
         s.index.name = "date"
         return s
 
-    # Long-history Baa - Aaa spread (in percentage points)
-    aaa = get(AAA)
-    baa = get(BAA)
-    spread = (baa - aaa).rename("CREDIT_SPREAD_BAA_AAA")
+    # Fetch raw series
+    try:
+        aaa = get_series(AAA)
+        baa = get_series(BAA)
+        hy = get_series(HY_OAS)
+    except Exception as e:
+        print(f"⚠️ FRED fetch failed for credit series: {e}")
+        return
 
-    # ICE OAS (basis points)
-    hy = get(HY_OAS).rename("HY_OAS")
-    ig = get(IG_OAS).rename("IG_OAS")
+    # Convert to monthly
+    aaa_m = _to_monthly(aaa).rename("AAA_yield")
+    baa_m = _to_monthly(baa).rename("BAA_yield")
+    hy_m = _to_monthly(hy).rename("HY_OAS_bp")
 
-    # Combine, monthly index, drop all-null rows
-    out = pd.concat([spread, hy, ig], axis=1)
-    out = out.resample("M").last()
-    out = out.dropna(how="all")
-    out.index.name = "date"
+    # Baa - Aaa spread in percentage points
+    spread = (baa_m - aaa_m).rename("BAA_AAA_spread_pct")
+
+    df = pd.concat([aaa_m, baa_m, spread, hy_m], axis=1).dropna(how="all")
+    df.index.name = "date"
+
+    if df.empty:
+        print("⚠️ No combined credit data to write.")
+        return
 
     PROC_OUT.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(PROC_OUT)
-    print("---- credit tail ----")
-    print(out.tail(6))
-    print(f"💾 Wrote {PROC_OUT} (rows={len(out)})  span: {out.index.min().date()} → {out.index.max().date()}")
+    df.to_csv(PROC_OUT)
+
+    print("---- credit_fred_processed tail ----")
+    print(df.tail(6))
+    print(
+        f"💾 Wrote {PROC_OUT} (rows={len(df)}) "
+        f"span: {df.index.min().date()} → {df.index.max().date()}"
+    )
+
 
 if __name__ == "__main__":
     main()
