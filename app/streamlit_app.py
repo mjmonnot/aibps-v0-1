@@ -1,14 +1,11 @@
 import os
-from datetime import datetime
-
 import numpy as np
 import pandas as pd
 import streamlit as st
 import altair as alt
 
-# ---------- Constants ----------
+# ---------- Paths ----------
 PROC_PATH = os.path.join("data", "processed", "aibps_monthly.csv")
-PILLAR_CANDIDATES = ["Market", "Credit", "Capex_Supply", "Infra", "Adoption", "Sentiment"]
 
 # ---------- Page config ----------
 st.set_page_config(
@@ -34,10 +31,14 @@ if df.empty:
 
 df.index.name = "date"
 
-# Determine which pillars are actually present
-available_pillars = [p for p in PILLAR_CANDIDATES if p in df.columns]
+# ---------- Detect pillars dynamically ----------
+# Treat all numeric columns except AIBPS & AIBPS_RA as pillars
+numeric_cols = df.select_dtypes(include="number").columns.tolist()
+pillar_exclude = ["AIBPS", "AIBPS_RA"]
+available_pillars = [c for c in numeric_cols if c not in pillar_exclude]
+
 if not available_pillars:
-    st.error("No known pillars found in composite file.")
+    st.error("No numeric pillars found in composite file.")
     st.stop()
 
 # ---------- Sidebar: weights & options ----------
@@ -59,7 +60,6 @@ with st.sidebar:
             step=0.1,
         )
 
-    # Build normalized weight vector
     w_vec = np.array([weight_inputs[p] for p in available_pillars], dtype=float)
     if w_vec.sum() == 0:
         w_vec = np.ones_like(w_vec)
@@ -90,17 +90,16 @@ with st.sidebar:
 
 pillars_df = df[available_pillars].copy()
 
-# In-app composite (based on sidebar weights)
-comp_in_app = (pillars_df * weights).sum(axis=1)
-comp_in_app_ra = comp_in_app.rolling(3, min_periods=1).mean()
+# In-app composite
+comp_in_app_raw = (pillars_df * weights).sum(axis=1)
+comp_in_app_ra = comp_in_app_raw.rolling(3, min_periods=1).mean()
 
-# Precomputed composite (if available)
+# Precomputed composite (if present)
 precomp_raw = df["AIBPS"] if "AIBPS" in df.columns else None
 precomp_ra = df["AIBPS_RA"] if "AIBPS_RA" in df.columns else None
 
-# Decide which composite to plot
 if composite_source == "In-app recomputed":
-    comp_raw = comp_in_app
+    comp_raw = comp_in_app_raw
     comp_ra = comp_in_app_ra
     comp_label = "AIBPS (in-app composite)"
 else:
@@ -113,28 +112,30 @@ else:
         comp_ra = precomp_raw.rolling(3, min_periods=1).mean()
         comp_label = "AIBPS (precomputed)"
     else:
-        comp_raw = comp_in_app
+        comp_raw = comp_in_app_raw
         comp_ra = comp_in_app_ra
         comp_label = "AIBPS (in-app composite)"
 
-# Assemble plotting frame
 comp_df = pd.DataFrame(
     {
         "Composite_raw": comp_raw,
         "Composite_RA": comp_ra,
     }
-).dropna()
+).dropna(how="all")
 
-# Decide which series to show on the main line
+if comp_df.empty:
+    st.error("Composite series is empty after combining. Check inputs.")
+    st.stop()
+
 if plot_series.startswith("Rolling"):
     comp_df["Composite"] = comp_df["Composite_RA"]
 else:
     comp_df["Composite"] = comp_df["Composite_raw"]
 
 # ---------- Top summary ----------
-latest_date = comp_df.index.max()
-latest_val = comp_df.loc[latest_date, "Composite"]
-latest_str = latest_date.strftime("%Y-%m-%d")
+latest_comp_date = comp_df.index.max()
+latest_val = comp_df.loc[latest_comp_date, "Composite"]
+latest_str = latest_comp_date.strftime("%Y-%m-%d")
 
 col_a, col_b, col_c = st.columns(3)
 with col_a:
@@ -146,17 +147,15 @@ with col_c:
 
 st.markdown("---")
 
-# ---------- Composite chart with bands + historical event markers ----------
+# ---------- Composite chart with bands + bubble markers ----------
 
 st.subheader("AI Bubble Pressure Score over time")
 
 df_plot = comp_df.reset_index().rename(columns={"index": "date"})
 
-# Get x-range for shading
 x_min = df_plot["date"].min()
 x_max = df_plot["date"].max()
 
-# Regime bands across full x-range
 bands_df = pd.DataFrame(
     [
         {"date_start": x_min, "date_end": x_max, "ymin": 0, "ymax": 25, "label": "Low"},
@@ -192,7 +191,17 @@ bands = (
     )
 )
 
-# Main AIBPS line
+# Horizontal regime threshold lines at 25/50/75
+thresholds_df = pd.DataFrame({"y": [25, 50, 75]})
+
+regime_rules = (
+    alt.Chart(thresholds_df)
+    .mark_rule(strokeDash=[3, 3], color="black", opacity=0.5)
+    .encode(
+        y="y:Q",
+    )
+)
+
 aibps_line = (
     alt.Chart(df_plot)
     .mark_line(strokeWidth=3)
@@ -206,7 +215,6 @@ aibps_line = (
     )
 )
 
-# Historical bubble event markers (staggered vertically)
 event_data = pd.DataFrame(
     [
         {"date": pd.Timestamp("2000-03-01"), "label": "Dot-com peak", "ypos": 12},
@@ -239,23 +247,11 @@ event_labels = (
     )
 )
 
-# Horizontal regime threshold lines at 25/50/75
-thresholds_df = pd.DataFrame({"y": [25, 50, 75]})
-
-regime_rules = (
-    alt.Chart(thresholds_df)
-    .mark_rule(strokeDash=[3, 3], color="black", opacity=0.5)
-    .encode(
-        y="y:Q",
-    )
-)
-
 composite_chart = (
     (bands + regime_rules + aibps_line + event_rules + event_labels)
     .properties(height=420)
     .interactive()
 )
-
 
 st.altair_chart(composite_chart, use_container_width=True)
 
@@ -263,11 +259,14 @@ st.altair_chart(composite_chart, use_container_width=True)
 
 st.markdown("### Pillar trajectories")
 
+# Any pillar that ever has data gets a trajectory
+pillars_with_data = [p for p in available_pillars if df[p].notna().any()]
+
 pillars_long = (
-    df[available_pillars]
+    df[pillars_with_data]
     .reset_index()
     .melt(id_vars="date", var_name="Pillar", value_name="Value")
-    .dropna()
+    .dropna(subset=["Value"])
 )
 
 pillars_chart = (
@@ -285,30 +284,41 @@ pillars_chart = (
 
 st.altair_chart(pillars_chart, use_container_width=True)
 
-# ---------- Weighted contributions at latest date ----------
+# ---------- Latest pillar contributions ----------
 
 st.markdown("### Latest pillar contributions")
 
-latest_row = df.loc[latest_date, available_pillars]
-contrib = latest_row * weights
-contrib_df = pd.DataFrame(
-    {"Pillar": contrib.index, "Contribution": contrib.values}
-)
+# Use the last date where at least 2 pillars have data
+valid_rows = df[pillars_with_data].dropna(how="all")
+if valid_rows.empty:
+    st.info("No rows with any pillar data found for contributions.")
+else:
+    contrib_date = valid_rows.index.max()
+    latest_row = df.loc[contrib_date, pillars_with_data]
 
-contrib_chart = (
-    alt.Chart(contrib_df)
-    .mark_bar()
-    .encode(
-        x=alt.X("Contribution:Q", title="Weighted contribution (0–100 scale)"),
-        y=alt.Y("Pillar:N", sort="-x"),
-        tooltip=[
-            alt.Tooltip("Pillar:N", title="Pillar"),
-            alt.Tooltip("Contribution:Q", title="Contribution", format=".1f"),
-        ],
+    contrib = latest_row * weights.reindex(pillars_with_data)
+    contrib = contrib.dropna()
+
+    contrib_df = pd.DataFrame(
+        {"Pillar": contrib.index, "Contribution": contrib.values}
     )
-)
 
-st.altair_chart(contrib_chart, use_container_width=True)
+    st.caption(f"Contributions as of {contrib_date.strftime('%Y-%m-%d')}")
+
+    contrib_chart = (
+        alt.Chart(contrib_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Contribution:Q", title="Weighted contribution (0–100 scale)"),
+            y=alt.Y("Pillar:N", sort="-x"),
+            tooltip=[
+                alt.Tooltip("Pillar:N", title="Pillar"),
+                alt.Tooltip("Contribution:Q", title="Contribution", format=".1f"),
+            ],
+        )
+    )
+
+    st.altair_chart(contrib_chart, use_container_width=True)
 
 # ---------- Footer ----------
 st.markdown("---")
