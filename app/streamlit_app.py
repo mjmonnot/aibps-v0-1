@@ -350,6 +350,58 @@ else:
 
         st.altair_chart(contrib_chart, use_container_width=True)
 
+# ---------- Pillar-by-pillar debug: Market ----------
+
+st.markdown("### Pillar debug")
+
+with st.expander("Market pillar debug"):
+    mkt_path = os.path.join("data", "processed", "market_processed.csv")
+    if not os.path.exists(mkt_path):
+        st.info("market_processed.csv not found. Run the update-data workflow first.")
+    else:
+        mkt = pd.read_csv(mkt_path, index_col=0, parse_dates=True).sort_index()
+        mkt.index.name = "date"
+
+        # Identify component columns (everything except the main Market composite)
+        comp_cols = [c for c in mkt.columns if c.startswith("Mkt_")]
+        show_cols = ["Market"] + comp_cols if "Market" in mkt.columns else comp_cols
+
+        if not show_cols:
+            st.info("No Market component series found to debug.")
+        else:
+            # Melt to long format for Altair
+            mkt_long = (
+                mkt[show_cols]
+                .reset_index()
+                .melt(id_vars="date", var_name="Series", value_name="Value")
+                .dropna(subset=["Value"])
+            )
+
+            st.write("Underlying Market components (rebased to 100 at first valid point):")
+
+            mkt_chart = (
+                alt.Chart(mkt_long)
+                .mark_line()
+                .encode(
+                    x=alt.X("date:T", title="Date"),
+                    y=alt.Y("Value:Q", title="Index (rebased to 100)"),
+                    color="Series:N",
+                    tooltip=[
+                        alt.Tooltip("date:T", title="Date"),
+                        alt.Tooltip("Series:N", title="Series"),
+                        alt.Tooltip("Value:Q", title="Value", format=".1f"),
+                    ],
+                )
+                .properties(height=260)
+                .interactive()
+            )
+
+            st.altair_chart(mkt_chart, use_container_width=True)
+
+            st.write("Tail of market_processed.csv:")
+            st.dataframe(mkt.tail(10))
+
+
 # ---------- Footer ----------
 st.markdown("---")
 updated_str = df.index.max().strftime("%Y-%m-%d")
