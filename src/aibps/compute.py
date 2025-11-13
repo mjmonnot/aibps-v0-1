@@ -229,21 +229,43 @@ def main():
         print("❌ No pillars normalized; cannot compute AIBPS.")
         sys.exit(1)
 
-    # ---- Compute AIBPS composite ----
+    # ---- Harmonize pillars (Capex & Infra) ----
+    # We may have manual + macro components; combine to single pillar when possible.
 
-    # Equal weights across all available normalized pillars
+    # Capex: combine manual + macro into Capex_Supply if needed
+    if "Capex_Supply" not in base.columns:
+        capex_sources = [c for c in ["Capex_Supply_Manual", "Capex_Supply_Macro"] if c in base.columns]
+        if capex_sources:
+            base["Capex_Supply"] = base[capex_sources].mean(axis=1, skipna=True)
+
+    # Infra: combine manual + macro into Infra if needed
+    if "Infra" not in base.columns:
+        infra_sources = [c for c in ["Infra_Manual", "Infra_Macro"] if c in base.columns]
+        if infra_sources:
+            base["Infra"] = base[infra_sources].mean(axis=1, skipna=True)
+
+    # ---- Pick the normalized pillars that actually exist ----
+    # (These are the columns we will use for the composite AIBPS)
+    candidate_pillars = ["Market", "Credit", "Capex_Supply", "Infra", "Adoption", "Sentiment"]
+    normalized_pillars = [c for c in candidate_pillars if c in base.columns]
+
+    print("---- Pillars used in composite ----")
+    print(normalized_pillars)
+
+    if not normalized_pillars:
+        raise RuntimeError("No normalized pillars available to compute AIBPS.")
+
+    # ---- Compute AIBPS composite (equal-weight across available pillars) ----
     w = np.ones(len(normalized_pillars), dtype=float)
     w = w / w.sum()
     weights = pd.Series(w, index=normalized_pillars)
 
-    print("---- Pillars used in composite ----")
-    print(normalized_pillars)
     print("---- Weights ----")
     print(weights)
 
     vals = base[normalized_pillars]
 
-    # Build weight matrix aligned to vals
+    # Build a weight matrix aligned to vals
     weight_vec = weights.reindex(normalized_pillars)
     weight_matrix = pd.DataFrame(
         np.broadcast_to(weight_vec.values, (len(vals), len(weight_vec))),
@@ -271,19 +293,25 @@ def main():
     # Drop rows where composite is NaN
     out = base.dropna(subset=["AIBPS"], how="all")
 
-
-    # ---- Debug tail ----
-    print("---- Columns in composite output ----")
+    # ---- Debug tail: last 6 rows for key series ----
+    print("---- Columns in composite ----")
     print(list(out.columns))
-    print("---- Tail (pillars + AIBPS + AIBPS_RA) ----")
-    cols_for_tail = normalized_pillars + ["AIBPS", "AIBPS_RA"]
-    cols_for_tail = [c for c in cols_for_tail if c in out.columns]
-    print(out[cols_for_tail].tail(6))
 
-    # ---- Write to disk ----
-    os.makedirs(PROC_DIR, exist_ok=True)
-    out.to_csv(OUT_PATH)
-    print(f"💾 Wrote {OUT_PATH} (rows={len(out)}) in {time.time() - t0:.2f}s")
+    def _safe_tail(name):
+        if name in out.columns:
+            print(f"{name}:")
+            print(out[name].tail(6))
+        else:
+            print(f"{name}: (missing)")
+
+    print("---- Tail (Market / Capex_Supply / Infra / Credit / AIBPS_RA) ----")
+    for col in ["Market", "Capex_Supply", "Infra", "Credit", "AIBPS_RA"]:
+        _safe_tail(col)
+
+    # ---- Write out ----
+    PROC_OUT.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(PROC_OUT)
+    print(f"💾 Wrote {PROC_OUT} with pillars: {normalized_pillars} (rows={len(out)})")
 
 
 if __name__ == "__main__":
