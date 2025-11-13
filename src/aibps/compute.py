@@ -309,9 +309,9 @@ def main():
         _safe_tail(col)
 
     # ---- Write out ----
-    PROC_OUT.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(PROC_OUT)
-    print(f"💾 Wrote {PROC_OUT} with pillars: {normalized_pillars} (rows={len(out)})")
+    os.makedirs(PROC_DIR, exist_ok=True)
+    out.to_csv(OUT_PATH)
+    print(f"💾 Wrote {OUT_PATH} with pillars: {normalized_pillars} (rows={len(out)})")
 
 
 if __name__ == "__main__":
