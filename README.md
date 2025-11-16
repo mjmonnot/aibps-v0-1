@@ -1,109 +1,193 @@
-# 🧠 AI Bubble Pressure Score (AIBPS) — v0.1
+# 🔥 AI Bubble Pressure Score (AIBPS)
+### Quantifying systemic bubble pressure across the AI economy  
+**Market • Credit • Capex • Infrastructure • Adoption • Sentiment**
 
+![AIBPS Banner](docs/img/banner_placeholder.png)
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-Interactive%20App-FF4B4B.svg)](https://streamlit.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+---
 
-An **interactive analytics framework** for measuring, visualizing, and tracking the buildup of a potential **AI-driven economic bubble** — across **market valuations, capital expenditure, infrastructure constraints, adoption, and credit conditions**.
+## 📦 About AIBPS
+The **AI Bubble Pressure Score (AIBPS)** is a quantitative, multi-pillar index designed to measure **systemwide speculative pressure** in the AI ecosystem.  
+It integrates **market valuations**, **credit conditions**, **capex cycles**, **infrastructure constraints**, **adoption patterns**, and **sentiment intensity** into a unified 0–100 index.
 
-This repository powers the **AI Bubble Pressure Score (AIBPS)** — a 0–100 composite indicator that integrates data from semiconductors, hyperscaler capex, data center infrastructure, cloud AI revenues, and credit spreads.
+AIBPS is **not a price predictor**. It is a **diagnostic instrument** for identifying when AI-related conditions resemble prior speculative bubbles such as the Dot-Com bubble, housing/credit bubble, or crypto asset cycles.
 
 ---
 
-## 🚀 Try it online
+## 🚀 Live Dashboard
+👉 https://aibps-v0-1.streamlit.app
 
-
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://aibps-v0-1.streamlit.app)
-![Update data and compute AIBPS](https://github.com/mjmonnot/aibps-v0-1/actions/workflows/update-data.yml/badge.svg)
-
-
----
-
-## 🧩 Features
-
-- 📊 **Composite Index:** Weighted, percentile-based scoring across five pillars:
-  - Market Valuations  
-  - Capex & Supply Chain  
-  - Infrastructure (Power, Data Centers)  
-  - Adoption & Productivity  
-  - Credit & Liquidity  
-
-- ⚙️ **Interactive Weight Controls:** Adjust pillar weights in real-time via sliders  
-- 🧾 **Chartbook Export:** One-click PDF generation (rolling average + contribution charts)  
-- 🕰️ **Historical Backfill:** 10-year window using public data from FRED, Yahoo Finance, and company filings  
-- 🧠 **Extensible Framework:** Add manual CSVs for capex, book-to-bill, or interconnection queues  
+Features:
+- Real-time AIBPS score  
+- Adjustable pillar weighting  
+- Multi-pillar trajectories  
+- Historical bubble regime overlays  
+- Deep debug panels  
+- Fully automated nightly data refresh  
 
 ---
 
-## 🏗️ Project Structure
-```
-aibps-v0-1/
-├── app/
-│   └── streamlit_app.py          # interactive dashboard
-├── src/aibps/
-│   ├── compute.py                # normalization, weighting, composite calc
-│   ├── fetch_market.py           # yfinance market proxies
-│   ├── fetch_credit.py           # FRED credit spreads
-│   ├── config.yaml               # indicator config & weights
-│   └── visualize.py              # radar & chartbook helpers
-├── data/
-│   ├── sample/                   # offline sample data for demo
-│   ├── raw/                      # pull raw market/credit CSVs
-│   └── processed/                # computed composite outputs
-├── .github/workflows/            # linting & CI
-├── requirements.txt
-├── LICENSE
-└── README.md
+## 📊 AIBPS Regimes (0–100 Scale)
+
+| Range | Regime | Interpretation |
+|-------|--------|----------------|
+| **0–20** | Green | Fundamentals-driven, early cycle |
+| **20–40** | Light Green | Normal expansion |
+| **40–60** | Yellow | Elevated enthusiasm |
+| **60–80** | Orange | Overheating risk |
+| **80–100** | Red | Historically extreme bubble pressure |
 
 ---
 
-## 🧠 Quickstart (local)
+## 🧠 Why AIBPS?
+Traditional bubble indicators track only price. AIBPS instead integrates **six independent economic systems**:
 
-```bash
-# Clone and enter
-git clone https://github.com/mjmonnot/aibps-v0-1.git
-cd aibps-v0-1
+1. **Market valuations** — AI-linked equities, sector indices  
+2. **Credit & liquidity** — corporate spread pressure  
+3. **Capex supply** — semi fab expansions, cloud GPU purchasing  
+4. **Infrastructure** — power grid and datacenter limits  
+5. **Adoption** — enterprise AI diffusion and demand  
+6. **Sentiment** — hype velocity, narrative acceleration  
 
-# Create environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+This creates a more realistic picture of systemic overheating.
 
-# Install dependencies
-pip install -r requirements.txt
+---
 
-# (Optional) Set your FRED API key
-export FRED_API_KEY=your_key_here
+# 📚 Documentation
 
-# Run the dashboard
-streamlit run app/streamlit_app.py
+### 🔬 Conceptual
+- docs/research_background.md  
+- docs/how_to_interpret_aibps.md  
+- docs/methodology.md  
 
-## 📈 Example Output
+### 🏗 Technical
+- docs/architecture.md  
+- docs/pillars.md  
+- docs/data_sources.md  
+- docs/roadmap.md  
 
-| Visualization | Description |
-|----------------|-------------|
-| ![Radar](docs/img/radar_placeholder.png) | Multi-pillar “pressure gauge” for bubble buildup |
-| ![TimeSeries](docs/img/timeseries_placeholder.png) | Rolling average of AIBPS (2020–2025) with risk bands |
-| ![Bar](docs/img/bar_placeholder.png) | Weighted contribution of each pillar |
+---
 
-## 📚 Data Sources (planned)
+# 🏗 System Architecture
 
-- FRED API — Credit spreads (HY/IG OAS)
-- Yahoo Finance — SOXX, QQQ, NVDA, MSFT, META, AMZN, GOOGL
-- Company filings (SEC EDGAR) — Capex & AI-related disclosures
-- SEMI.org — Semiconductor equipment book-to-bill
-- CBRE, JLL, ISO queue data — Power & DC capacity
-- Cloud provider financial reports — AI revenue attribution
+Below is a plain-text diagram safe for Markdown blocks:
 
-## 🧑‍💻 Contributing
+    GitHub Actions (Nightly)
+                │
+                ▼
+        Fetchers for all pillars
+        (Market, Credit, Capex,
+         Infra, Adoption, Sentiment)
+                │
+                ▼
+        data/raw/*.csv (raw lake)
+                │
+                ▼
+      Processing & QA pipeline
+      clean → resample → align
+                │
+                ▼
+       data/processed/*.csv
+                │
+                ▼
+        Composite Engine (AIBPS)
+     normalize → weight → aggregate
+                │
+                ▼
+  data/processed/aibps_monthly.csv
+                │
+                ▼
+       Streamlit Front-End App
 
-Contributions are welcome!
-Submit pull requests for:
-- New indicators or data pipelines
-- Visualization improvements
-- Streamlit UX upgrades
+---
 
-## 🪪 License
+# 📥 Installation
 
-MIT License © 2025  
-See the LICENSE file for details.
+### 1. Clone the repository (indentation used instead of code fence)
+    git clone https://github.com/mjmonnot/aibps-v0-1.git
+    cd aibps-v0-1
 
+### 2. Install dependencies
+    pip install -r requirements.txt
+
+### 3. Optional: export your FRED API key
+    export FRED_API_KEY="your_fred_key"
+
+---
+
+# 🔄 Automated Data Refresh
+A nightly GitHub Action fetches, validates, and updates all datasets.  
+Badge:
+
+![Data Update](https://github.com/mjmonnot/aibps-v0-1/actions/workflows/update-data.yml/badge.svg)
+
+---
+
+# 📈 Example Output
+![AIBPS Example Chart](docs/img/aibps_chart_placeholder.png)
+
+---
+
+# 📂 Repository Structure
+
+    aibps-v0-1/
+    ├── app/
+    │   └── streamlit_app.py
+    ├── src/aibps/
+    │   ├── compute.py
+    │   ├── normalize.py
+    │   ├── config.yaml
+    │   ├── fetch_market.py
+    │   ├── fetch_credit.py
+    │   ├── fetch_capex.py
+    │   ├── fetch_macro_capex.py
+    │   ├── fetch_infra.py
+    │   ├── fetch_adoption.py
+    │   ├── fetch_sentiment.py
+    │   └── utils/
+    ├── data/
+    │   ├── raw/
+    │   └── processed/
+    ├── docs/
+    │   ├── methodology.md
+    │   ├── research_background.md
+    │   ├── how_to_interpret_aibps.md
+    │   ├── data_sources.md
+    │   ├── architecture.md
+    │   ├── pillars.md
+    │   └── img/
+    ├── .github/workflows/
+    │   └── update-data.yml
+    ├── requirements.txt
+    └── README.md
+
+---
+
+# 🤝 Contributing
+We welcome contributions related to:
+
+- Econometrics & forecasting  
+- Data engineering  
+- Infrastructure analysis  
+- Behavioral & sentiment modeling  
+- Visualization & dashboard design  
+
+Submit issues or pull requests.
+
+---
+
+# 📜 License
+MIT License — open for research, academic, and commercial use.
+
+---
+
+# 🧠 Citation (APA)
+Monnot, M. J. (2025). *AI Bubble Pressure Score (AIBPS): A multi-pillar systemic pressure index.* GitHub Repository. https://github.com/mjmonnot/aibps-v0-1
+
+---
+
+# 💬 Contact
+Issues: https://github.com/mjmonnot/aibps-v0-1/issues  
+Creator: Matthew J. Monnot, PhD
