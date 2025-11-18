@@ -1,78 +1,39 @@
-name: Update data and compute AIBPS
+name: Update data
 
 on:
-  workflow_dispatch:
+  # Nightly run at 06:00 UTC
   schedule:
-    - cron: "0 6 * * *"  # daily at 06:00 UTC (tweak if you like)
+    - cron: '0 6 * * *'
+  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
 
     steps:
-      # ----- CHECKOUT -----
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ----- PYTHON SETUP -----
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ----- MARKET -----
-      - name: Fetch Market (yfinance)
+      - name: Fetch market data
         run: |
           python src/aibps/fetch_market.py
-
-      - name: Sanity print market tail
-        run: |
           echo "---- TAIL: data/processed/market_processed.csv ----"
-          if [ -f data/processed/market_processed.csv ]; then
-            tail -n 10 data/processed/market_processed.csv
-          else
-            echo "market_processed.csv missing"
-          fi
+          tail -n 10 data/processed/market_processed.csv || true
 
-      # ----- CREDIT (FRED) -----
-      - name: Fetch Credit (FRED)
-        env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-        run: |
-          python src/aibps/fetch_credit.py
-
-      - name: Sanity print credit tail
-        run: |
-          echo "---- TAIL: data/processed/credit_fred_processed.csv ----"
-          if [ -f data/processed/credit_fred_processed.csv ]; then
-            tail -n 10 data/processed/credit_fred_processed.csv
-          else
-            echo "credit_fred_processed.csv missing"
-          fi
-
-      # ----- CAPEX (manual + macro) -----
-      - name: Fetch Capex (manual CSV)
-        run: |
-          python src/aibps/fetch_capex.py
-
-      - name: Sanity print capex tail
-        run: |
-          echo "---- TAIL: data/processed/capex_processed.csv ----"
-          if [ -f data/processed/capex_processed.csv ]; then
-            tail -n 10 data/processed/capex_processed.csv
-          else
-            echo "capex_processed.csv missing"
-          fi
-
-
-      - name: Fetch credit (FRED deep)
+      - name: Fetch credit (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
@@ -80,88 +41,57 @@ jobs:
           echo "---- TAIL: data/processed/credit_fred_processed.csv ----"
           tail -n 10 data/processed/credit_fred_processed.csv || true
 
-      - name: List src/aibps (debug)
-        run: |
-          echo "PWD=$(pwd)"
-          ls -al
-          ls -al src || true
-          ls -al src/aibps || true
-
-      - name: Fetch Macro Capex (FRED + Hyperscalers)
-        env:
-        FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-      run: |
-        python src/aibps/fetch_macro_capex.py
-         echo "---- TAIL: data/processed/macro_capex_processed.csv ----"
-         tail -n 10 data/processed/macro_capex_processed.csv || true
-
-      - name: Fetch Infra Macro (power IP + capacity)
+      - name: Fetch macro + hyperscaler capex
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
-          python src/aibps/fetch_infra_macro.py
-          echo "---- TAIL: data/processed/infra_macro_processed.csv ----"
-          if [ -f data/processed/infra_macro_processed.csv ]; then
-            tail -n 10 data/processed/infra_macro_processed.csv
-          else
-            echo "infra_macro_processed.csv missing"
-          fi
+          python src/aibps/fetch_macro_capex.py
+          echo "---- TAIL: data/processed/macro_capex_processed.csv ----"
+          tail -n 10 data/processed/macro_capex_processed.csv || true
 
+      - name: Fetch infrastructure data
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python src/aibps/fetch_infra.py
+          echo "---- TAIL: data/processed/infra_processed.csv ----"
+          tail -n 10 data/processed/infra_processed.csv || true
 
-      # ----- ADOPTION (manual) -----
-      - name: Fetch Adoption (manual CSV)
+      - name: Fetch adoption data
         run: |
           python src/aibps/fetch_adoption.py
-
-      - name: Sanity print adoption tail
-        run: |
           echo "---- TAIL: data/processed/adoption_processed.csv ----"
-          if [ -f data/processed/adoption_processed.csv ]; then
-            tail -n 10 data/processed/adoption_processed.csv
-          else
-            echo "adoption_processed.csv missing"
-          fi
+          tail -n 10 data/processed/adoption_processed.csv || true
 
-      # ----- SENTIMENT (Google Trends) -----
-      - name: Fetch Sentiment (Google Trends)
+      - name: Fetch sentiment data
         run: |
           python src/aibps/fetch_sentiment.py
-
-      - name: Sanity print sentiment tail
-        run: |
           echo "---- TAIL: data/processed/sentiment_processed.csv ----"
-          if [ -f data/processed/sentiment_processed.csv ]; then
-            tail -n 10 data/processed/sentiment_processed.csv
-          else
-            echo "sentiment_processed.csv missing"
-          fi
+          tail -n 10 data/processed/sentiment_processed.csv || true
 
-      # ----- COMPUTE -----
-      - name: Compute AIBPS composite
+      - name: Compute composite AIBPS
         run: |
           python src/aibps/compute.py
-
-      - name: Sanity print composite tail
-        run: |
           echo "---- TAIL: data/processed/aibps_monthly.csv ----"
-          if [ -f data/processed/aibps_monthly.csv ]; then
-            tail -n 10 data/processed/aibps_monthly.csv
-          else
-            echo "aibps_monthly.csv missing"
-          fi
+          tail -n 10 data/processed/aibps_monthly.csv || true
 
-      # ----- COMMIT & PUSH -----
-      - name: Commit and push if changed
+      - name: Commit and push updated data
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "---- git status (before add) ----"
           git status
-          if [ -n "$(git status --porcelain data/processed data/raw || true)" ]; then
-            git add data/processed data/raw
-            git commit -m "Auto-update data ($(date -u +%Y-%m-%dT%H:%M:%SZ))" || echo "Nothing to commit"
-            git push origin HEAD:main
-          else
-            echo "No data changes to commit."
+
+          # Add only CSVs in data/processed and data/raw
+          git add data/processed/*.csv data/raw/*.csv 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
           fi
+
+          git commit -m "Auto-update data (${GITHUB_RUN_ID})"
+          git push
