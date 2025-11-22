@@ -453,55 +453,36 @@ with st.expander("Credit pillar debug"):
 # -----------------------------
 # CAPEX / SUPPLY PILLAR DEBUG
 # -----------------------------
-with st.expander("Capex / Supply Pillar Debug"):
-    capex_candidates = [
-        os.path.join("data", "processed", "capex_processed.csv"),
-        os.path.join("data", "processed", "capex_supply_processed.csv"),
-        os.path.join("data", "processed", "macro_capex_processed.csv"),
-    ]
+with st.expander("Capex pillar debug", expanded=False):
 
-    capex_path = None
-    for p in capex_candidates:
-        if os.path.exists(p):
-            capex_path = p
-            break
+    # Identify all Capex-related columns
+    capex_cols = [c for c in df.columns if c.startswith("Capex_")]
+    st.write("Capex columns detected:", capex_cols)
 
-    if capex_path is None:
-        st.info("No capex-related processed file found.")
-    else:
-        st.write(f"Using: `{capex_path}`")
+    # Show raw tail
+    st.dataframe(df[capex_cols].tail(12))
 
-        cap = pd.read_csv(capex_path, index_col=0, parse_dates=True).sort_index()
-        cap.index.name = "date"
+    # Prepare long format for Altair
+    capex_long = (
+        df[capex_cols]
+        .reset_index(names="date")
+        .melt(id_vars="date", var_name="Component", value_name="Value")
+    )
 
-        st.write("Tail of Capex / Supply:")
-        st.dataframe(cap.tail(10))
+    # Multi-line chart
+    capex_chart = (
+        alt.Chart(capex_long)
+        .mark_line()
+        .encode(
+            x=alt.X("date:T", title="Date"),
+            y=alt.Y("Value:Q", title="Index (0–100)"),
+            color=alt.Color("Component:N", title="Capex Component"),
+            tooltip=["date:T", "Component:N", "Value:Q"],
+        )
+        .properties(height=260)
+    )
 
-        numeric_cols = cap.select_dtypes(include="number").columns.tolist()
-        if numeric_cols:
-            cap_long = (
-                cap[numeric_cols]
-                .reset_index()
-                .melt(id_vars="date", var_name="Series", value_name="Value")
-                .dropna(subset=["Value"])
-            )
-
-            cap_chart = (
-                alt.Chart(cap_long)
-                .mark_line()
-                .encode(
-                    x="date:T",
-                    y="Value:Q",
-                    color="Series:N",
-                    tooltip=["date:T", "Series:N", "Value:Q"]
-                )
-                .properties(height=260)
-                .interactive()
-            )
-
-            st.altair_chart(cap_chart, use_container_width=True)
-        else:
-            st.info("No numeric Capex columns to plot.")
+    st.altair_chart(capex_chart, use_container_width=True)
 
 
 # -----------------------------
