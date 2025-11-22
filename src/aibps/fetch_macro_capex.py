@@ -5,47 +5,43 @@ Builds a fabrication + cloud-compute-oriented Capex index for the AIBPS.
 
 Components included:
 
-(1) Macro compute/fab (FRED), original series:
+(1) Core macro capex proxies (FRED):
     - A679RL1Q225SBEA – Real private fixed investment in info processing equipment & software
     - B935RX1A020NBEA – Real private fixed investment: nonresidential equipment: computers & peripherals
     - PCU333242333242 – PPI: Semiconductor Machinery Manufacturing
 
-(2) Additional FRED-based capex / supply-chain signals (A–C):
+(2) Additional FRED-based capex / supply-chain signals:
     A. Semiconductor production / capacity:
        - IPG336413     – Industrial Production: Semiconductors and Related Devices
        - IPN336413     – Capacity Utilization: Semiconductors and Related Devices
 
     B. IT equipment & processing investment:
        - Y033RC1Q027SBEA – Private fixed investment in information processing equipment
-       - ITNETINV        – (If available) IT equipment & software investment (check FRED docs)
 
     C. Construction / structures proxies:
        - PNFI        – Private nonresidential fixed investment
        - PRFI        – Private residential fixed investment
-       - TLRESCONS   – Total construction spending (private + public), if available
+       - TLRESCONS   – Total construction spending (if available; skipped otherwise)
 
-(3) Hyperscaler capex:
+(3) Hyperscaler capex (optional):
     - data/raw/hyperscaler_capex.csv
-      (Year, AWS, Microsoft, Google, Meta, ...)
 
-(4) Fabrication capex:
+(4) Fabrication capex (optional):
     - data/raw/fab_capex.csv
-      (Year, TSMC, Samsung, Intel, ...)
 
-(5) Datacenter construction cost index:
+(5) Datacenter construction cost index (optional):
     - data/raw/dc_cost_index.csv
-      (Date, Cost_Index, ...)
 
 Output:
     data/processed/macro_capex_processed.csv with columns such as:
-      - Capex_Supply
-      - Capex_Macro_Comp            (original macro composite)
-      - Capex_Semi_Activity         (A: semi production/capacity)
-      - Capex_IT_Equip              (B: IT equip/investment)
-      - Capex_Constr                (C: construction proxies)
+      - Capex_Macro_Comp
+      - Capex_Semi_Activity
+      - Capex_IT_Equip
+      - Capex_Constr
       - Capex_Hyperscaler
       - Capex_Fab_Index
       - Capex_DC_Cost_Index
+      - Capex_Supply
 """
 
 import os
@@ -63,27 +59,26 @@ OUT_PATH = PROC_DIR / "macro_capex_processed.csv"
 # FRED series configuration
 # ----------------------------
 
-# Your original macro capex proxies
+# Core macro proxies
 CORE_FRED_SERIES = {
     "A679RL1Q225SBEA": "InfoProc_EquipSoft_Real",
     "B935RX1A020NBEA": "Comp_Periph_Real",
     "PCU333242333242": "PPI_Semi_Machinery",
 }
 
-# New additional FRED series for A–C
+# Extra signals
 EXTRA_FRED_SERIES = {
     # A: Semiconductor production / capacity
-    "IPG336413": "IP_Semi_Prod",   # Industrial Production: Semiconductors & Related Devices
-    "IPN336413": "CU_Semi_Cap",    # Capacity Utilization: Semiconductors & Related Devices
+    "IPG336413": "IP_Semi_Prod",
+    "IPN336413": "CU_Semi_Cap",
 
     # B: IT equipment / processing investment
     "Y033RC1Q027SBEA": "Inv_InfoProc_Equip",
-    # "ITNETINV": "Inv_IT_EquipSoft",  # Uncomment if this series exists in FRED for you
 
-    # C: Construction / structures proxies
+    # C: Construction proxies
     "PNFI": "Priv_Nonres_FixedInv",
     "PRFI": "Priv_Res_FixedInv",
-    "TLRESCONS": "Total_Constr_Spending",  # may or may not exist; will be skipped if invalid
+    "TLRESCONS": "Total_Constr_Spending",  # if absent, will be skipped
 }
 
 BASELINE_DATE = pd.Timestamp("2015-12-31")
@@ -110,17 +105,9 @@ def get_fred():
         return None
 
 
-def fetch_fred_block(fred, series_map: dict, label: str) -> pd.DataFrame | None:
+def fetch_fred_block(fred, series_map, label: str) -> pd.DataFrame | None:
     """
-    Fetch a set of FRED series defined in series_map and resample to monthly.
-
-    Args:
-        fred: Fred client or None
-        series_map: dict of {series_id: column_name}
-        label: text label for logging
-
-    Returns:
-        DataFrame of monthly series, or None if all fail.
+    Fetch a group of FRED series and resample to monthly.
     """
     if fred is None:
         print(f"ℹ️ No FRED client; skipping {label} block.")
@@ -152,7 +139,7 @@ def fetch_fred_block(fred, series_map: dict, label: str) -> pd.DataFrame | None:
 
 
 def scale_to_index(series: pd.Series, baseline_date: pd.Timestamp, name: str) -> pd.Series:
-    """Scale a series to index=100 at baseline_date (or first valid)."""
+    """Scale a series so that baseline_date (or first valid) ≈ 100."""
     s = series.copy()
 
     baseline_val = np.nan
@@ -176,9 +163,7 @@ def scale_to_index(series: pd.Series, baseline_date: pd.Timestamp, name: str) ->
 
 
 def build_macro_block_index(df: pd.DataFrame, name: str) -> pd.Series:
-    """
-    Scale each column to an index and average into a composite.
-    """
+    """Scale each column to an index and average into a composite."""
     if df is None or df.empty:
         return pd.Series(dtype=float, name=name)
 
@@ -320,14 +305,14 @@ def load_dc_cost_index() -> pd.Series | None:
 
     df = df.set_index("Date").sort_index()
 
-    if "Cost_Index" not in df.columns:
+    if "Cost_Index" in df.columns:
+        value_col = "Cost_Index"
+    else:
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         if not numeric_cols:
             print("⚠️ dc_cost_index.csv has no numeric columns.")
             return None
         value_col = numeric_cols[0]
-    else:
-        value_col = "Cost_Index"
 
     s = df[value_col].copy()
     s.name = "Capex_DC_Cost_Raw"
@@ -348,7 +333,7 @@ def main():
 
     fred = get_fred()
 
-    # 1) Core macro FRED block
+    # 1) Core macro capex index
     core_df = fetch_fred_block(fred, CORE_FRED_SERIES, label="core_macro")
     if core_df is None:
         print("⚠️ Falling back to synthetic macro capex index (constant 100).")
@@ -357,38 +342,31 @@ def main():
     else:
         macro_index = build_macro_block_index(core_df, "Capex_Macro_Comp")
 
-    # 2) Extra macro FRED blocks (A–C) combined
+    # 2) Extra FRED blocks (A–C)
     extra_df = fetch_fred_block(fred, EXTRA_FRED_SERIES, label="extra_capex")
+    semi_idx = it_idx = constr_idx = None
     if extra_df is not None and not extra_df.empty:
-        # We'll make three composites: Semi, IT, and Constr from subsets of columns
         semi_cols = [c for c in extra_df.columns if c.startswith("IP_") or c.startswith("CU_")]
-        it_cols   = [c for c in extra_df.columns if "Inv_InfoProc" in c or "Inv_IT" in c]
+        it_cols = [c for c in extra_df.columns if "Inv_InfoProc" in c or "Inv_IT" in c]
         constr_cols = [c for c in extra_df.columns if "Priv_" in c or "Total_Constr" in c]
 
-        semi_idx = build_macro_block_index(extra_df[semi_cols], "Capex_Semi_Activity") if semi_cols else None
-        it_idx   = build_macro_block_index(extra_df[it_cols], "Capex_IT_Equip") if it_cols else None
-        constr_idx = build_macro_block_index(extra_df[constr_cols], "Capex_Constr") if constr_cols else None
-    else:
-        semi_idx = it_idx = constr_idx = None
+        if semi_cols:
+            semi_idx = build_macro_block_index(extra_df[semi_cols], "Capex_Semi_Activity")
+        if it_cols:
+            it_idx = build_macro_block_index(extra_df[it_cols], "Capex_IT_Equip")
+        if constr_cols:
+            constr_idx = build_macro_block_index(extra_df[constr_cols], "Capex_Constr")
 
+    # 3) Other components
     hyper_series = load_hyperscaler_capex()
     fab_series = load_fab_capex()
     dc_cost_series = load_dc_cost_index()
 
-    # Base DataFrame
+    # Build unified DataFrame on macro_index index
     df = pd.DataFrame(index=macro_index.index)
     df["Capex_Macro_Comp"] = macro_index
 
-    # Add extra FRED composites if present
-    for ser in [semi_idx, it_idx, constr_idx]:
-        if ser is None or ser.empty:
-            continue
-        name = ser.name
-        df = df.join(ser, how="outer")
-        df[name] = df[name].ffill()
-
-    # Add other components
-    for ser in [hyper_series, fab_series, dc_cost_series]:
+    for ser in [semi_idx, it_idx, constr_idx, hyper_series, fab_series, dc_cost_series]:
         if ser is None or ser.empty:
             continue
         name = ser.name
