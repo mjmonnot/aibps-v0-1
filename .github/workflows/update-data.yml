@@ -49,13 +49,21 @@ jobs:
           echo "---- TAIL: data/processed/macro_capex_processed.csv ----"
           tail -n 10 data/processed/macro_capex_processed.csv || true
 
-      - name: Fetch infrastructure data
+            # ----- INFRASTRUCTURE (FRED) -----
+      - name: Fetch infrastructure (FRED)
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python src/aibps/fetch_infra.py
+
+      - name: Sanity print infra tail
+        run: |
           echo "---- TAIL: data/processed/infra_processed.csv ----"
-          tail -n 10 data/processed/infra_processed.csv || true
+          if [ -f data/processed/infra_processed.csv ]; then
+            tail -n 10 data/processed/infra_processed.csv
+          else
+            echo "infra_processed.csv missing"
+          fi
 
       - name: Fetch adoption data
         run: |
