@@ -282,41 +282,57 @@ composite_chart = (
 
 st.altair_chart(composite_chart, use_container_width=True)
 
-# ---------- Pillar trajectories (mini-multiples) ----------
+# ----- Pillar trajectories (normalized 0–100) -----
+st.subheader("Pillar trajectories")
 
-st.markdown("### Pillar trajectories")
+# df is the composite DataFrame loaded from aibps_monthly.csv
+available_cols = list(df.columns)
 
-pillars_long = (
-    df[available_pillars]
-    .reset_index()
-    .melt(id_vars="date", var_name="Pillar", value_name="Value")
-    .dropna(subset=["Value"])
-)
+# Map internal column names → nice labels for the chart
+pillar_map = {
+    "Market": "Market",
+    "Capex_Supply": "Capex / Supply",
+    "Infra": "Infrastructure",
+    "Adoption": "Adoption",
+    "Sentiment": "Sentiment",
+    "Credit": "Credit",
+}
 
-if pillars_long.empty:
-    st.info("No non-missing pillar data to plot.")
+# Only include pillars that actually exist in the data
+plot_cols = [col for col in pillar_map.keys() if col in available_cols]
+
+if not plot_cols:
+    st.info("No pillar columns found to plot trajectories.")
 else:
-    pillars_chart = (
-        alt.Chart(pillars_long)
+    traj_df = (
+        df[plot_cols]
+        .reset_index(names="date")
+        .melt(id_vars="date", var_name="Pillar", value_name="Value")
+    )
+    # Apply pretty labels
+    traj_df["Pillar"] = traj_df["Pillar"].map(pillar_map)
+
+    traj_chart = (
+        alt.Chart(traj_df)
         .mark_line()
         .encode(
             x=alt.X("date:T", title="Date"),
             y=alt.Y(
                 "Value:Q",
-                title="Normalized (0–100)",
+                title="Pillar score (0–100, normalized)",
                 scale=alt.Scale(domain=[0, 100]),
             ),
-            color="Pillar:N",
-            facet=alt.Facet("Pillar:N", columns=3),
+            color=alt.Color("Pillar:N", title="Pillar"),
+            tooltip=[
+                alt.Tooltip("date:T", title="Date"),
+                alt.Tooltip("Pillar:N", title="Pillar"),
+                alt.Tooltip("Value:Q", title="Score", format=".1f"),
+            ],
         )
-        .properties(height=140)
-        .resolve_scale(y="shared")
+        .properties(height=280)
     )
 
-    st.altair_chart(pillars_chart, use_container_width=True)
-
-
-
+    st.altair_chart(traj_chart, use_container_width=True)
 
 
 # ---------- Pillar-by-pillar debug: Market ----------
