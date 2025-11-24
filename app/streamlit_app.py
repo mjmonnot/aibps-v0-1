@@ -724,67 +724,168 @@ with st.expander("Infra pillar debug", expanded=False):
                                 f"is **{top_comp['Component']}** (~{top_comp['Value']:.1f}/100)."
                             )
 
+# ----- Adoption pillar debug -----
+with st.expander("Adoption pillar debug", expanded=False):
+    st.markdown("### Adoption subcomponents (diagnostic view)")
 
-# -----------------------------
-# ADOPTION PILLAR DEBUG
-# -----------------------------
-# ----- Adoption sub-pillar trajectories -----
-st.subheader("Adoption sub-pillar trajectories")
+    adopt_path = "data/processed/adoption_processed.csv"
 
-adopt_path = "data/processed/adoption_processed.csv"
-
-if not os.path.exists(adopt_path):
-    st.info(f"`{adopt_path}` not found. Run the update-data workflow first.")
-else:
-    try:
-        adopt_df = (
-            pd.read_csv(adopt_path, parse_dates=["Date"])
-            .set_index("Date")
-            .sort_index()
-        )
-    except Exception as e:
-        st.error(f"Failed to read `{adopt_path}`: {e}")
-        adopt_df = None
-
-    if adopt_df is None or adopt_df.empty:
-        st.info("adoption_processed.csv is empty.")
+    if not os.path.exists(adopt_path):
+        st.warning(f"`{adopt_path}` not found. Run the update-data workflow first.")
     else:
-        # Only *true* subcomponents – skip the composites
-        sub_cols = [
-            c for c in adopt_df.columns
-            if c.startswith("Adoption_")
-            and c not in ["Adoption", "Adoption_Supply"]
-        ]
+        try:
+            adopt_df = (
+                pd.read_csv(adopt_path, parse_dates=["Date"])
+                .set_index("Date")
+                .sort_index()
+            )
+        except Exception as e:
+            st.error(f"Failed to read `{adopt_path}`: {e}")
+            adopt_df = None
 
-        if not sub_cols:
-            st.info("No Adoption_* subcomponent columns found (excluding Adoption / Adoption_Supply).")
+        if adopt_df is None or adopt_df.empty:
+            st.info("adoption_processed.csv is empty.")
         else:
-            ad_traj = (
-                adopt_df[sub_cols]
-                .reset_index(names="date")
-                .melt(id_vars="date", var_name="Component", value_name="Value")
-            )
+            # Only *true* subcomponents – skip the composites
+            sub_cols = [
+                c
+                for c in adopt_df.columns
+                if c.startswith("Adoption_")
+                and c not in ["Adoption", "Adoption_Supply"]
+            ]
 
-            ad_traj_chart = (
-                alt.Chart(ad_traj)
-                .mark_line()
-                .encode(
-                    x=alt.X("date:T", title="Date"),
-                    y=alt.Y(
-                        "Value:Q",
-                        title="Adoption sub-pillar index (2015 ≈ 100)",
-                    ),
-                    color=alt.Color("Component:N", title="Adoption Component"),
-                    tooltip=[
-                        alt.Tooltip("date:T", title="Date"),
-                        alt.Tooltip("Component:N", title="Component"),
-                        alt.Tooltip("Value:Q", title="Index", format=".1f"),
-                    ],
+            if not sub_cols:
+                st.info(
+                    "No Adoption_* subcomponent columns found "
+                    "(excluding Adoption / Adoption_Supply)."
                 )
-                .properties(height=260)
-            )
+            else:
+                selected_cols = st.multiselect(
+                    "Select Adoption components to display",
+                    options=sub_cols,
+                    default=sub_cols,
+                    help=(
+                        "Includes Adoption_Enterprise_Software, "
+                        "Adoption_Cloud_Services, Adoption_Digital_Labor, "
+                        "Adoption_Connectivity (when available)."
+                    ),
+                )
 
-            st.altair_chart(ad_traj_chart, use_container_width=True)
+                if not selected_cols:
+                    st.warning("Select at least one Adoption component to view.")
+                else:
+                    # Raw tail for numeric sanity
+                    st.markdown("**Latest 12 months — raw Adoption indices (2015 ≈ 100)**")
+                    st.dataframe(adopt_df[selected_cols].tail(12))
+
+                    # Visual 0–100 normalization per component (for readability)
+                    vis_df = adopt_df[selected_cols].copy()
+                    for col in vis_df.columns:
+                        col_min = vis_df[col].min()
+                        col_max = vis_df[col].max()
+                        if pd.isna(col_min) or pd.isna(col_max) or col_min == col_max:
+                            vis_df[col] = 50.0
+                        else:
+                            vis_df[col] = 100.0 * (vis_df[col] - col_min) / (col_max - col_min)
+
+                    vis_long = (
+                        vis_df.reset_index(names="date")
+                        .melt(id_vars="date", var_name="Component", value_name="Value")
+                    )
+
+                    ad_ts = (
+                        alt.Chart(vis_long)
+                        .mark_line()
+                        .encode(
+                            x=alt.X("date:T", title="Date"),
+                            y=alt.Y(
+                                "Value:Q",
+                                title="Visual index (0–100 per component)",
+                                scale=alt.Scale(domain=[0, 100]),
+                            ),
+                            color=alt.Color("Component:N", title="Adoption Component"),
+                            tooltip=[
+                                alt.Tooltip("date:T", title="Date"),
+                                alt.Tooltip("Component:N", title="Component"),
+                                alt.Tooltip(
+                                    "Value:Q",
+                                    title="Visual index (0–100)",
+                                    format=".1f",
+                                ),
+                            ],
+                        )
+                        .properties(
+                            height=260,
+                            title="Adoption components over time (visually normalized per series)",
+                        )
+                    )
+                    st.altair_chart(ad_ts, use_container_width=True)
+
+                    # Current-date visual contribution snapshot
+                    latest_idx = vis_df.dropna(how="all").index.max()
+                    if pd.isna(latest_idx):
+                        st.info(
+                            "No valid recent data to compute current Adoption contributions."
+                        )
+                    else:
+                        latest_vis = vis_df.loc[latest_idx, selected_cols].dropna()
+                        if latest_vis.empty:
+                            st.info(
+                                "Latest row has no non-missing Adoption values (visual)."
+                            )
+                        else:
+                            contrib_df = (
+                                latest_vis.reset_index()
+                                .rename(
+                                    columns={
+                                        "index": "Component",
+                                        latest_idx: "Value",
+                                    }
+                                )
+                            )
+                            contrib_df["Component"] = contrib_df["Component"].astype(str)
+
+                            st.markdown(
+                                f"**Current Adoption contributions (visual scale)** "
+                                f"(as of `{latest_idx.date()}`, 0–100 per component)"
+                            )
+
+                            ad_bar = (
+                                alt.Chart(contrib_df)
+                                .mark_bar()
+                                .encode(
+                                    x=alt.X(
+                                        "Component:N",
+                                        title="Adoption Component",
+                                        sort="-y",
+                                    ),
+                                    y=alt.Y(
+                                        "Value:Q",
+                                        title="Visual index (0–100)",
+                                        scale=alt.Scale(domain=[0, 100]),
+                                    ),
+                                    tooltip=[
+                                        alt.Tooltip("Component:N", title="Component"),
+                                        alt.Tooltip(
+                                            "Value:Q",
+                                            title="Visual index (0–100)",
+                                            format=".1f",
+                                        ),
+                                    ],
+                                )
+                                .properties(height=260)
+                            )
+
+                            st.altair_chart(ad_bar, use_container_width=True)
+
+                            top_comp = contrib_df.sort_values(
+                                "Value", ascending=False
+                            ).iloc[0]
+                            st.caption(
+                                "Visual-only: each Adoption component is rescaled to 0–100 over its own history. "
+                                f"At the latest date, the relatively strongest component (within this visual scale) "
+                                f"is **{top_comp['Component']}** (~{top_comp['Value']:.1f}/100)."
+                            )
 
 
 # -----------------------------
