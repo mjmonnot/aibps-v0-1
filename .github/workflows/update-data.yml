@@ -81,12 +81,13 @@ jobs:
             echo "adoption_processed.csv missing"
           fi
 
-
-      - name: Fetch sentiment data
+      - name: Fetch sentiment (FRED)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python src/aibps/fetch_sentiment.py
           echo "---- TAIL: data/processed/sentiment_processed.csv ----"
-          tail -n 10 data/processed/sentiment_processed.csv || true
+          tail -n 15 data/processed/sentiment_processed.csv || true
 
       - name: Compute composite AIBPS
         run: |
