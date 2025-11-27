@@ -1,130 +1,198 @@
-# src/aibps/fetch_sentiment.py
-# Sentiment pillar = AI hype INTENSITY (unipolar)
-# - Uses Google Trends search interest for AI-related terms
-# - Aggregates to monthly, then converts to 0–100 percentile vs history
-# - Output: data/processed/sentiment_processed.csv with column "Sentiment"
-#
-# Interpretation:
-#   0   = AI barely discussed
-#   100 = AI dominates public attention (search interest peak)
+#!/usr/bin/env python3
+"""
+fetch_sentiment.py
+
+Builds a multi-component Sentiment pillar for AIBPS from real FRED series:
+
+Sub-pillars:
+    - Sentiment_Consumer : UMCSENT
+        * University of Michigan: Consumer Sentiment Index
+
+    - Sentiment_EPU      : USEPUINDXM
+        * Economic Policy Uncertainty Index for United States (news-based)
+
+    - Sentiment_VIX      : VIXCLS
+        * CBOE Volatility Index (VIX) – daily; resampled to month-end
+
+We:
+    * Fetch raw series from FRED
+    * Resample all to month-end, forward-fill
+    * Trim to START_DATE
+    * Standardize each sub-pillar via z-score
+    * Build Sentiment = mean of available standardized sub-pillars
+
+Output:
+    data/processed/sentiment_processed.csv with columns:
+        - Sentiment_Consumer
+        - Sentiment_EPU
+        - Sentiment_VIX
+        - Sentiment   (composite, based on z-mean)
+"""
 
 import os
 import sys
-import time
 import pandas as pd
-import numpy as np
-from pytrends.request import TrendReq
 
-OUT = os.path.join("data", "processed", "sentiment_processed.csv")
-os.makedirs(os.path.dirname(OUT), exist_ok=True)
+try:
+    from fredapi import Fred
+except ImportError:
+    Fred = None
 
-# Core AI search terms (you can tweak these later)
-TERMS = [
-    "artificial intelligence",
-    "ai",
-    "chatgpt",
-    "openai",
-    "generative ai",
-    "machine learning",
-]
+START_DATE = "1980-01-31"
+OUT_PATH = "data/processed/sentiment_processed.csv"
+
+# FRED IDs
+CONSUMER_ID = "UMCSENT"
+EPU_ID      = "USEPUINDXM"
+VIX_ID      = "VIXCLS"
 
 
-def expanding_pct(series: pd.Series) -> pd.Series:
-    """Expanding percentile: for each t, percentile of current value vs all past."""
-    series = series.dropna()
-    vals = []
-    idx = []
-    for i in range(len(series)):
-        window = series.iloc[: i + 1]
-        pct = window.rank(pct=True).iloc[-1] * 100.0
-        vals.append(float(pct))
-        idx.append(series.index[i])
-    return pd.Series(vals, index=idx)
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
 
+def get_fred_client():
+    """Instantiate a Fred client from FRED_API_KEY, or return None if unavailable."""
+    if Fred is None:
+        print("❌ fredapi is not installed. Install it in your environment.")
+        return None
 
-def main():
-    t0 = time.time()
+    key = os.getenv("FRED_API_KEY")
+    if not key:
+        print("⚠️ FRED_API_KEY not set; cannot fetch Sentiment data from FRED.")
+        return None
 
     try:
-        pytrends = TrendReq(hl="en-US", tz=360)
+        return Fred(api_key=key)
     except Exception as e:
-        print(f"❌ pytrends init failed: {e}")
-        # Write empty file so downstream code doesn't crash
-        pd.DataFrame(columns=["Sentiment"]).to_csv(OUT)
-        sys.exit(1)
-
-    # Use dynamic end date so we don't query far into the future
-    end_str = pd.Timestamp.today().strftime("%Y-%m-%d")
-    timeframe = f"2015-01-01 {end_str}"
-    print(f"Using Google Trends timeframe: {timeframe}")
-
-    series_list = []
-
-    for term in TERMS:
-        try:
-            pytrends.build_payload([term], timeframe=timeframe, geo="")
-            df_t = pytrends.interest_over_time()
-            if df_t is None or df_t.empty or term not in df_t.columns:
-                print(f"⚠️ No trends data for term: {term}")
-                continue
-
-            s = df_t[term].copy()
-            s.name = term
-            series_list.append(s)
-            print(f"  ✓ fetched {len(s)} points for '{term}'")
-        except Exception as e:
-            print(f"⚠️ pytrends failed for '{term}': {e}")
-
-    # ---- Combine ----
-    if not series_list:
-        print("⚠️ No Google Trends series fetched.")
-        if os.path.exists(OUT):
-            print("⚠️ Keeping existing sentiment_processed.csv (no overwrite).")
-            return
-        else:
-            print("⚠️ No existing sentiment file; writing empty Sentiment file.")
-            pd.DataFrame(columns=["Sentiment"]).to_csv(OUT)
-            return
-
-    df = pd.concat(series_list, axis=1).sort_index()
-    df["Sentiment"] = df.mean(axis=1, skipna=True)
-    df = df[["Sentiment"]].dropna()
-
-    print(df.tail(10))
-    df.to_csv(OUT)
-    print(f"💾 Wrote {OUT} (rows={len(df)})")
+        print(f"❌ Failed to initialize Fred client: {e}")
+        return None
 
 
+def fetch_series(fred, sid, colname, label):
+    """
+    Fetch a single FRED series and return as a one-column DataFrame with Date index.
+    """
+    try:
+        ser = fred.get_series(sid)
+        if ser is None or len(ser) == 0:
+            print(f"⚠️ {label}: empty or missing series {sid}; skipping.")
+            return pd.DataFrame()
 
-    # Combine all terms into one dataframe
-    df_all = pd.concat(series_list, axis=1)
-    df_all.index = pd.to_datetime(df_all.index)
-    df_all = df_all.sort_index()
+        s = pd.Series(ser, name=colname)
+        s.index = pd.to_datetime(s.index)
+        s = s.sort_index()
+        print(
+            f"✅ {label}: fetched {sid} → {colname} "
+            f"({s.index.min().date()} → {s.index.max().date()}, n={len(s)})"
+        )
+        return s.to_frame()
+    except Exception as e:
+        print(f"⚠️ {label}: failed fetching {sid}: {e}")
+        return pd.DataFrame()
 
-    # Resample to monthly mean to smooth weekly noise
-    monthly = df_all.resample("M").mean()
-    monthly.index.name = "date"
 
-    # Aggregate across terms to a single "hype intensity" series
-    monthly["hype_mean"] = monthly.mean(axis=1, skipna=True)
+def reindex_monthly(df, start_date):
+    """
+    Resample to month-end ("ME"), forward-fill, and trim to dates >= start_date.
+    Ensures DatetimeIndex before resampling.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    # Convert to expanding percentile (0–100)
-    hype = expanding_pct(monthly["hype_mean"]).clip(1, 99)
-    hype.index.name = "date"
-    hype.name = "Sentiment"
+    df = df.copy()
+    df.index = pd.to_datetime(df.index, errors="coerce")
+    df = df[~df.index.isna()].sort_index()
+    if df.empty:
+        return pd.DataFrame()
 
-    out = pd.DataFrame({"Sentiment": hype}).dropna()
-    out.to_csv(OUT)
+    monthly = df.resample("ME").last().ffill()
 
-    print(f"💾 Wrote {OUT} ({len(out)} rows) using Google Trends terms: {TERMS}")
-    print("Tail:")
-    print(out.tail(6))
-    print(f"⏱ Done in {time.time() - t0:.2f}s")
+    start_ts = pd.to_datetime(start_date)
+    monthly = monthly[monthly.index >= start_ts]
+    monthly.index.name = "Date"
+    return monthly
+
+
+def z_standardize(series: pd.Series) -> pd.Series:
+    """
+    Simple z-score standardization: (x - mean) / std.
+    Returns NaNs if std == 0 or series empty.
+    """
+    if series is None or series.empty:
+        return series
+
+    m = series.mean()
+    s = series.std()
+    if s == 0 or pd.isna(s):
+        return pd.Series(index=series.index, data=float("nan"), name=series.name)
+
+    z = (series - m) / s
+    z.name = series.name
+    return z
+
+
+# ---------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------
+
+def main():
+    fred = get_fred_client()
+    if fred is None:
+        # Write an empty shell file so downstream steps don't blow up.
+        os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
+        empty_cols = ["Sentiment_Consumer", "Sentiment_EPU", "Sentiment_VIX", "Sentiment"]
+        pd.DataFrame(columns=empty_cols).to_csv(OUT_PATH, index_label="Date")
+        print(f"💾 Wrote empty {OUT_PATH} (no FRED client).")
+        return 0
+
+    # --- Fetch individual series ---
+    cons_df = fetch_series(fred, CONSUMER_ID, "Sentiment_Consumer", "ConsumerSentiment")
+    epu_df  = fetch_series(fred, EPU_ID,      "Sentiment_EPU",      "EconomicPolicyUncertainty")
+    vix_df  = fetch_series(fred, VIX_ID,      "Sentiment_VIX",      "VIX")
+
+    # Combine and resample
+    combined = pd.concat([cons_df, epu_df, vix_df], axis=1).sort_index()
+
+    if combined.empty:
+        print("⚠️ All Sentiment sub-series empty; writing empty sentiment_processed.csv.")
+        os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
+        empty_cols = ["Sentiment_Consumer", "Sentiment_EPU", "Sentiment_VIX", "Sentiment"]
+        pd.DataFrame(columns=empty_cols).to_csv(OUT_PATH, index_label="Date")
+        print(f"💾 Wrote empty {OUT_PATH}")
+        return 0
+
+    monthly = reindex_monthly(combined, START_DATE)
+
+    # Z-standardize each component before building composite
+    z_cols = {}
+    for cname in ["Sentiment_Consumer", "Sentiment_EPU", "Sentiment_VIX"]:
+        if cname in monthly.columns:
+            z_cols[cname] = z_standardize(monthly[cname])
+
+    if z_cols:
+        z_df = pd.concat(z_cols.values(), axis=1)
+        # Composite = mean of available z-scores
+        monthly["Sentiment"] = z_df.mean(axis=1)
+        print(f"✅ Sentiment composite constructed from z-scored components: {list(z_cols.keys())}")
+    else:
+        monthly["Sentiment"] = float("nan")
+        print("⚠️ No Sentiment components available; Sentiment is NaN.")
+
+    # Tail debug
+    print("---- Tail of sentiment_processed.csv ----")
+    print(monthly.tail(12))
+
+    # Write output
+    os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
+    monthly.to_csv(OUT_PATH, index_label="Date")
+    print(
+        f"💾 Wrote {OUT_PATH} with {len(monthly)} rows and columns: "
+        f"{list(monthly.columns)}"
+    )
+
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"❌ fetch_sentiment.py: {e}")
-        sys.exit(1)
+    sys.exit(main())
