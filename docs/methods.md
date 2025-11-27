@@ -1,7 +1,3 @@
-# ============================================
-# METHODOLOGY.md
-# ============================================
-
 # 📘 AIBPS Methodology
 
 This document details the conceptual scaffolding, data selection, normalization logic, and composite construction behind the **AI Bubble Pressure Score (AIBPS)**.
