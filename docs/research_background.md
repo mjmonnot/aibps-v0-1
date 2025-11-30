@@ -207,4 +207,29 @@ It provides an empirical basis for discussions about “AI bubbles” rather tha
 
 # 📝 10. References (APA Style)
 
+## 📚 References (APA 7th Edition)
+
+Borio, C., Drehmann, M., & Xia, F. D. (2018). The financial cycle and recession risk. *BIS Quarterly Review* (December 2018). https://www.bis.org/publ/qtrpdf/r_qt1812g.htm
+
+Bresnahan, T. F., & Trajtenberg, M. (1995). General purpose technologies: “Engines of growth”? *Journal of Econometrics, 65*(1), 83–108. https://doi.org/10.1016/0304-4076(94)01598-T
+
+Brynjolfsson, E., Rock, D., & Syverson, C. (2021). The productivity J-curve: How intangibles complement general purpose technologies. *American Economic Journal: Macroeconomics, 13*(4), 333–372. https://doi.org/10.1257/mac.20180386
+
+Da, Z., Engelberg, J., & Gao, P. (2011). In search of attention. *The Journal of Finance, 66*(5), 1461–1499. https://doi.org/10.1111/j.1540-6261.2011.01679.x
+
+Flamm, K. (1988). *Creating the computer: Government, industry, and high technology*. Brookings Institution Press. https://www.brookings.edu/books/creating-the-computer/
+
+Kindleberger, C. P., & Aliber, R. Z. (2011). *Manias, panics, and crashes: A history of financial crises* (6th ed.). Palgrave Macmillan. https://doi.org/10.1057/9780230365353
+
+Monnot, M. J., & Beehr, T. A. (2022). The good life versus the “goods life”: An investigation of goal contents theory and employee subjective well-being across Asian countries. *Journal of Happiness Studies, 23*(3), 1215–1244. https://doi.org/10.1007/s10902-021-00447-5
+
+O’Mahony, M., & van Ark, B. (2003). *EU productivity and competitiveness: An industry perspective*. European Commission. https://ec.europa.eu/eurostat/documents/3217494/5630281/KS-AR-03-001-EN.PDF
+
+Rogers, E. M. (2003). *Diffusion of innovations* (5th ed.). Free Press. https://books.google.com/books/about/Diffusion_of_Innovations_5th_Edition.html?id=9U1K5LjUOwEC
+
+Shiller, R. J. (2019). *Narrative economics: How stories go viral and drive major economic events*. Princeton University Press. https://press.princeton.edu/books/hardcover/9780691182292/narrative-economics
+
+Sornette, D. (2003). *Why stock markets crash: Critical events in complex financial systems*. Princeton University Press. https://press.princeton.edu/books/paperback/9780691175959/why-stock-markets-crash
+
+Venkatesh, V., Morris, M. G., Davis, G. B., & Davis, F. D. (2003). User acceptance of information technology: Toward a unified view. *MIS Quarterly, 27*(3), 425–478. https://doi.org/10.2307/30036540
 
