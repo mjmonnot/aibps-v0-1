@@ -1,148 +1,169 @@
-# 🤖 AI Bubble Pressure Score (AIBPS)
+# 🧠 AI Bubble Pressure Score (AIBPS)
+A data-driven, multi-pillar early-warning system estimating pressure building inside the modern AI-driven economic cycle.  
+Combines market signals, credit conditions, hyperscaler + semiconductor capex, infrastructure build-out, enterprise AI adoption, and sentiment intensity into one 0–100 composite.
 
-The **AI Bubble Pressure Score (AIBPS)** is a research-grade, transparent index that tracks how overheated or subdued the AI economy is relative to its own history and to past macro bubble regimes (dot-com, housing/GFC, COVID).
+AIBPS answers a simple question:
 
-AIBPS integrates **six major economic pillars**:
-- 📈 **Market**
-- 💳 **Credit**
-- 🏭 **Capex / Supply**
-- 🖥️ **Infrastructure**
-- 🧩 **Adoption**
-- 🧠 **Sentiment**
-
-Each is normalized to **0–100** and combined into a single composite updated monthly.
+**“How stretched is the AI ecosystem right now compared to its own historical patterns?”**
 
 ---
 
-## 📊 Live Dashboard
+## 🚀 Live Dashboard
+👉 **Streamlit App:** https://aibps-v0-1.streamlit.app
 
-**👉 Streamlit App:**  
-https://aibps-v0-1.streamlit.app
-
-Features:
-- Full AIBPS history (~1980–present)
-- Dynamic bubble-regime shading (green → yellow → orange → red)
-- Major macro event callouts (Dot-Com, Lehman, COVID, etc.)
-- Pillar trajectories
-- Sub-pillar debug charts
-- Live adjustable pillar weights
-- Pillar contribution breakdown
+Updates automatically via GitHub Actions (daily at ~07:00 UTC).
 
 ---
 
-## 🧱 Project Structure
+# 📦 Project Structure
 
+```
 aibps-v0-1/
 ├── app/
-│ └── streamlit_app.py
-├── src/
-│ └── aibps/
-│ ├── compute.py
-│ ├── normalize.py
-│ ├── fetch_market.py
-│ ├── fetch_credit.py
-│ ├── fetch_macro_capex.py
-│ ├── fetch_infra.py
-│ ├── fetch_adoption.py
-│ ├── fetch_sentiment.py
-│ └── config.yaml
+│   └── streamlit_app.py               # Interactive dashboard
+├── src/aibps/
+│   ├── compute.py                     # Composite assembly, normalization, weighting
+│   ├── normalize.py                   # Rolling Z, percentile, sigmoid transforms
+│   ├── fetch_market.py                # Market data (yfinance)
+│   ├── fetch_credit.py                # Credit spreads (FRED)
+│   ├── fetch_macro_capex.py           # Hyperscaler, semiconductor, fab, infra CAPEX
+│   ├── fetch_infra.py                 # Infrastructure build-out (electricity, cooling, grid)
+│   ├── fetch_adoption.py              # Enterprise software, digital labor, cloud adoption
+│   ├── fetch_sentiment.py             # News/text sentiment (synthetic + API-ready)
+│   └── config.yaml                    # Pillar definitions, weights, normalization settings
 ├── data/
-│ ├── raw/
-│ └── processed/
+│   ├── raw/                           # Raw pulls from APIs
+│   └── processed/                     # Normalized monthly indicators and composite
+├── .github/workflows/
+│   └── update-data.yml                # Automated daily refresh
 ├── docs/
-│ ├── METHODOLOGY.md
-│ ├── ARCHITECTURE.md
-│ └── INTERPRET_AIBPS.md
-└── .github/workflows/update-data.yml
-
-
----
-
-## ⚙️ How the System Works
-
-### **1. Fetch raw data**
-Automated scripts in `src/aibps/` pull:
-- Market data (yfinance)
-- Credit spreads (FRED)
-- Capex (macro capex, hyperscaler AI capex CSV)
-- Infrastructure proxies (FRED + curated CSVs)
-- Adoption indicators (enterprise software, digital labor, etc.)
-- Sentiment measures (consumer sentiment, uncertainty, VIX)
-
-Raw → processed → monthly-aligned outputs written to  
-`data/processed/*.csv`
+│   ├── METHODS.md                     # How each pillar is built
+│   ├── OVERVIEW.md                    # Conceptual framing + economic logic
+│   ├── ARCHITECTURE.md                # Dataflow + processing pipeline
+│   └── REFERENCES.md                  # Literature & citation support
+├── requirements.txt
+└── README.md
+```
 
 ---
 
-### **2. Normalize & unify**
-`compute.py`:
-- Aligns all pillars on a **common monthly index** (≈1980+)
-- Applies normalization (rolling-z-sigmoid, percentiles, z-score)
-- Produces:
-  - Normalized pillar scores (0–100)
-  - Sub-pillar columns
-  - Composite AIBPS
-  - Smoothed AIBPS_RA (rolling average)
+# ⚙️ How It Works
 
-Outputs to:  
-`data/processed/aibps_monthly.csv`
+## 1. **Pillars**
+AIBPS is composed of six equally weighted pillars (weights configurable):
 
----
+| Pillar | What It Measures | Source Examples |
+|--------|------------------|------------------|
+| **Market** | AI-tilted asset returns & valuations | SOXX, QQQ, NVDA basket |
+| **Credit** | Funding stress & corporate risk appetite | FRED HY OAS, IG OAS |
+| **Capex** | Hyperscaler + semiconductor + fab investment cycle | FRED PNFI, hyperscaler CSV |
+| **Infrastructure** | Power, grid build-out, cooling & data-center density | FRED ELECGEN, IPN313 |
+| **Adoption** | Enterprise software, digital labor, productivity | FRED productivity, labor costs |
+| **Sentiment** | Media hype, keyword fever, attention cycles | NLP-ready sentiment pipeline |
 
-### **3. Visualize**
-The Streamlit dashboard shows:
-- 📈 AIBPS main line (0–100)
-- 🟥/🟧/🟨/🟩 bubble regime shading
-- 🏛️ historical macro events
-- 🔧 pillar debug panels
-- 🎛️ adjustable weights
-- 🌡️ normalized pillar contributions
+Each pillar is normalized using either:
+- Rolling Z-score  
+- Rolling Z-Sigmoid  
+- Percentile rank  
+- (configurable in `config.yaml`)
+
+All subcomponents → normalized → averaged → pillar score → composite.
 
 ---
 
-## ▶️ Run Locally
+# 📈 Composite Score (0–100)
 
+AIBPS represents the **relative extremity** of AI-related conditions:
 
+- **0–25** → 🔵 *Cold / Undervalued / Early-cycle*
+- **25–50** → 🟢 *Stable / Neutral*
+- **50–75** → 🟡 *Elevated / Late-cycle*
+- **75–90** → 🟠 *Stretched / Fragile*
+- **90–100** → 🔴 *Bubble conditions historically seen before unwinds*
 
-git clone https://github.com/mjmonnot/aibps-v0-1.git
+Bands adapt to the selected normalization scheme (default: rolling Z-sigmoid).
 
-cd aibps-v0-1
-python -m venv .venv
-source .venv/bin/activate
+---
+
+# 🔄 Automatic Daily Refresh
+A GitHub Actions workflow:
+
+- Pulls fresh data (yfinance + FRED + CSV hyperscaler capex)
+- Normalizes using rolling windows
+- Recomputes composite & pillars
+- Commits new artifacts into `/data/processed/`
+- Streamlit automatically reloads them
+
+You can inspect the workflow at:
+```
+.github/workflows/update-data.yml
+```
+
+---
+
+# 🧪 Local Development
+
+## Install dependencies
+```
 pip install -r requirements.txt
-export FRED_API_KEY="YOUR_KEY"
+```
 
-python src/aibps/fetch_market.py
-python src/aibps/fetch_credit.py
-python src/aibps/fetch_macro_capex.py
-python src/aibps/fetch_infra.py
-python src/aibps/fetch_adoption.py
-python src/aibps/fetch_sentiment.py
+## Run the composite builder manually
+```
 python src/aibps/compute.py
+```
 
+## Run Streamlit locally
+```
 streamlit run app/streamlit_app.py
+```
 
 ---
 
-## 🤖 GitHub Actions (Auto Update)
+# 📊 Interpretation Guide
 
-`.github/workflows/update-data.yml` refreshes:
-- raw data  
-- processed pillars  
-- composite AIBPS  
-- dashboard-ready CSV  
+## 📉 What a Rising AIBPS Means
+A rising score typically reflects:
 
-Runs on schedule using your secret `FRED_API_KEY`.
+- Rapidly accelerating **hyperscaler / semiconductor capex**
+- Tightening **credit conditions**
+- Surging **market valuations**
+- High **media attention or hype intensity**
+- Infrastructure bottlenecks (power, cooling, grid)
+- Low-friction **AI adoption** in enterprises
+
+## 📈 What a Falling AIBPS Means
+- AI cycles cooling off  
+- Funding risk improving  
+- Capex plateauing / deferred  
+- Sentiment moderation  
+- Market de-risking  
 
 ---
 
-## 📚 Documentation
+# 📚 Documentation
+All full documents stored in `/docs/`:
 
-See the `docs/` folder for:
-- `METHODOLOGY.md` – scientific underpinnings  
-- `ARCHITECTURE.md` – compute + dataflow diagrams  
-- `INTERPRET_AIBPS.md` – how to read the index  
+- **OVERVIEW.md** – economic logic, comparisons to dot-com & housing bubbles  
+- **METHODS.md** – detailed pillar construction + normalization math  
+- **ARCHITECTURE.md** – ETL/dataflow diagrams  
+- **REFERENCES.md** – peer-reviewed citations (APA 7)
 
 ---
 
+# 🤝 Contributing
 
+Pull requests welcome!  
+Please open an issue before adding new pillars, subcomponents, or APIs.
+
+---
+
+# 📄 License
+MIT License — free to fork, modify, and build upon.
+
+---
+
+# 🙋 Contact
+Maintainer: **Matt Monnot, PhD**  
+Industrial–Organizational Psychologist | People Analytics | Applied Econometrics  
+GitHub: https://github.com/mjmonnot
